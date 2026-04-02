@@ -1,0 +1,20 @@
+{
+  "name": "@quiz-app/worker-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/server.js",
+  "types": "dist/server.d.ts",
+  "scripts": {
+    "build": "rimraf dist && tsc -p tsconfig.json",
+    "dev": "dotenv -e ../../.env -- tsx watch src/server.ts",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@quiz-app/db": "workspace:*",
+    "@quiz-app/queues": "workspace:*",
+    "@quiz-app/redis": "workspace:*",
+    "@quiz-app/types": "workspace:*",
+    "bullmq": "^5.61.0"
+  }
+}

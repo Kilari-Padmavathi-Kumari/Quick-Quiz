@@ -1,0 +1,29 @@
+{
+  "name": "quiz-app",
+  "private": true,
+  "packageManager": "pnpm@10.32.1",
+  "scripts": {
+    "build": "pnpm -r build",
+    "build:api-stack": "pnpm -r --filter @quiz-app/api-server... build",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "db:migrate": "pnpm --filter @quiz-app/db migrate",
+    "db:seed": "pnpm build:api-stack && pnpm --filter @quiz-app/api-server seed",
+    "db:grant-default-balance": "pnpm --filter @quiz-app/api-server grant-default-balance",
+    "dev:api": "pnpm build:api-stack && pnpm --filter @quiz-app/api-server dev",
+    "dev:frontend": "pnpm --filter @quiz-app/frontend dev",
+    "dev:game": "pnpm --filter @quiz-app/game-server dev",
+    "dev:worker": "pnpm --filter @quiz-app/worker-server dev",
+    "lint": "pnpm -r lint",
+    "reset:local": "powershell -ExecutionPolicy Bypass -File ./scripts/reset-local.ps1",
+    "test:socket-client": "dotenv -e .env -- tsx scripts/socket-test-client.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0",
+    "dotenv-cli": "^10.0.0",
+    "rimraf": "^6.0.1",
+    "socket.io-client": "^4.8.1",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.3"
+  }
+}

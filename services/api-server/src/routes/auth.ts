@@ -17,7 +17,7 @@ import {
   setRefreshCookie
 } from "../lib/auth.js";
 import { redis } from "../lib/redis.js";
-import { normalizeOrganizationId, requireOrganizationId } from "../lib/tenant.js";
+import { parseOrganizationId, requireOrganizationId } from "../lib/tenant.js";
 
 const requestCodeSchema = z.object({
   email: z.string().email(),
@@ -419,17 +419,18 @@ async function exchangeGoogleAuthorizationCode(code: string) {
 
 export async function authRoutes(app: FastifyInstance) {
   app.get("/auth/google", async (request, reply) => {
-    const queryOrganizationId = String((request.query as { organization_id?: string }).organization_id ?? "");
-    const organizationId = queryOrganizationId
-      ? normalizeOrganizationId(queryOrganizationId)
-      : requireOrganizationId(request);
-
     if (!config.googleClientId || !config.googleClientSecret) {
       return reply.redirect(buildFrontendErrorUrl("Google OAuth is not configured on the server."));
     }
 
     const state = randomBytes(24).toString("hex");
-    const redirectTo = resolveFrontendRedirect(String((request.query as { redirect_to?: string }).redirect_to ?? ""));
+    const query = request.query as { redirect_to?: string; organization_id?: string };
+    const redirectTo = resolveFrontendRedirect(String(query.redirect_to ?? ""));
+    const organizationId = parseOrganizationId(String(query.organization_id ?? ""));
+
+    if (!organizationId) {
+      return reply.redirect(buildFrontendErrorUrl("Missing or invalid organization_id."));
+    }
 
     await redis.setex(
       authStateKey(state),
@@ -477,8 +478,10 @@ export async function authRoutes(app: FastifyInstance) {
 
     try {
       const profile = await exchangeGoogleAuthorizationCode(code);
+      const organizationId = parsedState.organization_id;
+
       const user = await resolveUserFromOauth({
-        organizationId: parsedState.organization_id,
+        organizationId,
         provider: "google",
         providerUid: profile.providerUid,
         email: profile.email,
@@ -500,9 +503,9 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.post("/auth/email-login", async (request, reply) => {
-    const organizationId = requireOrganizationId(request);
     const body = emailLoginSchema.parse(request.body);
     const email = body.email.trim().toLowerCase();
+    const organizationId = requireOrganizationId(request);
 
     console.log("EMAIL_LOGIN_REQUEST", {
       organizationId,
@@ -533,10 +536,11 @@ export async function authRoutes(app: FastifyInstance) {
     };
   });
 
-  app.post("/auth/request-code", async (request) => {
-    const organizationId = requireOrganizationId(request);
+  app.post("/auth/request-code", async (request, reply) => {
     const body = requestCodeSchema.parse(request.body);
     const email = body.email.trim().toLowerCase();
+    const organizationId = requireOrganizationId(request);
+
     const code = String(randomInt(100000, 999999));
 
     const payload: AuthCodePayload = {
@@ -560,9 +564,10 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.post("/auth/password-login", async (request, reply) => {
-    const organizationId = requireOrganizationId(request);
     const body = passwordSchema.parse(request.body);
     const email = body.email.trim().toLowerCase();
+    const organizationId = requireOrganizationId(request);
+
     const password = body.password.trim();
     const patternOk = /^quiz@\d{4}$/i.test(password);
 
@@ -595,9 +600,9 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.post("/auth/verify-code", async (request, reply) => {
-    const organizationId = requireOrganizationId(request);
     const body = verifyCodeSchema.parse(request.body);
     const email = body.email.trim().toLowerCase();
+    const organizationId = requireOrganizationId(request);
 
     const raw = await redis.get(authCodeKey(organizationId, email));
     if (!raw) {
@@ -639,8 +644,8 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.post("/auth/google", async (request, reply) => {
-    const organizationId = requireOrganizationId(request);
     const body = googleSchema.parse(request.body);
+    const organizationId = requireOrganizationId(request);
 
     try {
       const profile = await verifyGoogleIdToken(body.id_token);
@@ -677,7 +682,6 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.post("/auth/refresh", async (request, reply) => {
-    const organizationId = requireOrganizationId(request);
     const rawRefreshToken = request.cookies[getRefreshCookieName()];
 
     if (!rawRefreshToken) {
@@ -691,7 +695,7 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.code(401).send({ message: "Refresh token is invalid or expired" });
     }
 
-    const verifiedSession = await authenticateAccessToken(nextSession.accessToken, organizationId);
+    const verifiedSession = await authenticateAccessToken(nextSession.accessToken);
     if (!verifiedSession.user) {
       clearRefreshCookie(reply);
       return reply.code(401).send({ message: verifiedSession.error });

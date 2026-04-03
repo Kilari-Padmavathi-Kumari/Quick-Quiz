@@ -126,7 +126,9 @@ export async function contestRoutes(app: FastifyInstance) {
         LEFT JOIN answers a
           ON a.contest_id = cm.contest_id
           AND a.user_id = cm.user_id
+          AND a.organization_id = $2
         WHERE cm.user_id = $1
+          AND cm.organization_id = $2
           AND c.organization_id = $2
         GROUP BY
           c.id,
@@ -188,6 +190,7 @@ export async function contestRoutes(app: FastifyInstance) {
             JOIN contests c ON c.id = cm.contest_id
             WHERE cm.contest_id = $1
               AND cm.user_id = $2
+              AND cm.organization_id = $3
               AND c.organization_id = $3
             LIMIT 1
           `,
@@ -195,7 +198,29 @@ export async function contestRoutes(app: FastifyInstance) {
         );
 
         if ((existingMember.rowCount ?? 0) > 0) {
-          return reply.code(409).send({ message: "User already joined this contest" });
+          const existingDebit = await client.query<{
+            balance_after: string;
+          }>(
+            `
+              SELECT balance_after
+              FROM wallet_transactions
+              WHERE user_id = $1
+                AND organization_id = $2
+                AND reason = 'entry_fee'
+                AND reference_id = $3
+              ORDER BY created_at DESC
+              LIMIT 1
+            `,
+            [request.user.id, request.user.organization_id, contestId]
+          );
+
+          return {
+            contestId,
+            memberCount: contest.member_count,
+            prizePool: paiseToMoney(contest.member_count * moneyToPaise(contest.entry_fee)),
+            walletBalance:
+              existingDebit.rows[0]?.balance_after ?? request.user.wallet_balance
+          };
         }
 
         const entryFeePaise = moneyToPaise(contest.entry_fee);
@@ -205,6 +230,8 @@ export async function contestRoutes(app: FastifyInstance) {
           amountPaise: entryFeePaise,
           type: "debit",
           reason: "entry_fee",
+          // Entry fees stay pending until the contest actually starts.
+          transactionStatus: "PENDING",
           referenceId: contestId,
           metadata: {
             contestId,
@@ -214,8 +241,8 @@ export async function contestRoutes(app: FastifyInstance) {
         });
 
         await client.query(
-          "INSERT INTO contest_members (contest_id, user_id) VALUES ($1, $2)",
-          [contestId, request.user.id]
+          "INSERT INTO contest_members (contest_id, user_id, organization_id) VALUES ($1, $2, $3)",
+          [contestId, request.user.id, request.user.organization_id]
         );
         await client.query(
           "UPDATE contests SET member_count = member_count + 1, updated_at = NOW() WHERE id = $1 AND organization_id = $2",
@@ -235,10 +262,12 @@ export async function contestRoutes(app: FastifyInstance) {
       }
 
       try {
-        await runRedisWithRetry(() => redis.sadd(contestMembersKey(contestId), request.user.id));
+        await runRedisWithRetry(() =>
+          redis.sadd(contestMembersKey(request.user.organization_id, contestId), request.user.id)
+        );
         await runRedisWithRetry(() =>
           redis.publish(
-            contestChannel(contestId),
+            contestChannel(request.user.organization_id, contestId),
             JSON.stringify({
               type: "lobby_update",
               contest_id: contestId,
@@ -262,6 +291,55 @@ export async function contestRoutes(app: FastifyInstance) {
     } catch (error) {
       if (error instanceof Error && error.name === "INSUFFICIENT_BALANCE") {
         return reply.code(402).send({ message: "Insufficient wallet balance" });
+      }
+
+      if (
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "23505"
+      ) {
+        const existingJoin = await pool.query<{
+          member_count: number;
+          entry_fee: string;
+          balance_after: string | null;
+        }>(
+          `
+            SELECT
+              c.member_count,
+              c.entry_fee,
+              (
+                SELECT wt.balance_after
+                FROM wallet_transactions wt
+                WHERE wt.user_id = $2
+                  AND wt.organization_id = $3
+                  AND wt.reason = 'entry_fee'
+                  AND wt.reference_id = c.id
+                ORDER BY wt.created_at DESC
+                LIMIT 1
+              ) AS balance_after
+            FROM contests c
+            JOIN contest_members cm
+              ON cm.contest_id = c.id
+             AND cm.user_id = $2
+             AND cm.organization_id = $3
+            WHERE c.id = $1
+              AND c.organization_id = $3
+            LIMIT 1
+          `,
+          [contestId, request.user.id, request.user.organization_id]
+        );
+
+        if (existingJoin.rowCount === 1) {
+          const existing = existingJoin.rows[0];
+          return {
+            success: true,
+            contest_id: contestId,
+            member_count: existing.member_count,
+            prize_pool: paiseToMoney(existing.member_count * moneyToPaise(existing.entry_fee)),
+            wallet_balance: existing.balance_after ?? request.user.wallet_balance
+          };
+        }
       }
 
       throw error;
@@ -311,7 +389,9 @@ export async function contestRoutes(app: FastifyInstance) {
         LEFT JOIN answers a
           ON a.contest_id = cm.contest_id
           AND a.user_id = cm.user_id
+          AND a.organization_id = $2
         WHERE cm.contest_id = $1
+          AND cm.organization_id = $2
           AND c.organization_id = $2
         GROUP BY u.id, u.name, u.avatar_url, cm.is_winner, cm.prize_amount, cm.joined_at
         ORDER BY

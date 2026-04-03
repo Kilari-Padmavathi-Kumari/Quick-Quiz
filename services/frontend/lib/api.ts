@@ -18,34 +18,41 @@ export interface LoginResponse {
 const UUID_PATTERN =
   /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/;
 
+function getConfiguredOrganizationId() {
+  if (!DEFAULT_ORGANIZATION_ID || !UUID_PATTERN.test(DEFAULT_ORGANIZATION_ID)) {
+    throw new Error("Missing valid NEXT_PUBLIC_ORGANIZATION_ID for tenant-scoped requests.");
+  }
+
+  return DEFAULT_ORGANIZATION_ID;
+}
+
+function resolveOrganizationIdFromToken(token: string) {
+  if (typeof window === "undefined") {
+    throw new Error("Cannot resolve tenant context outside the browser.");
+  }
+
+  const payload = token.split(".")[1];
+  if (!payload) {
+    throw new Error("Access token is missing tenant context.");
+  }
+
+  const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+  const decoded = window.atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="));
+  const parsed = JSON.parse(decoded) as { organization_id?: string };
+
+  if (!parsed.organization_id || !UUID_PATTERN.test(parsed.organization_id)) {
+    throw new Error("Access token organization is missing or invalid.");
+  }
+
+  return parsed.organization_id;
+}
+
 async function apiFetch<T>(path: string, init?: RequestInit, accessToken?: string): Promise<T> {
-  const resolveOrganizationId = (token?: string) => {
-    if (!token || typeof window === "undefined") {
-      return DEFAULT_ORGANIZATION_ID;
-    }
-
-    try {
-      const payload = token.split(".")[1];
-      if (!payload) {
-        return DEFAULT_ORGANIZATION_ID;
-      }
-
-      const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-      const decoded = window.atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="));
-      const parsed = JSON.parse(decoded) as { organization_id?: string };
-      return parsed.organization_id && UUID_PATTERN.test(parsed.organization_id)
-        ? parsed.organization_id
-        : DEFAULT_ORGANIZATION_ID;
-    } catch {
-      return DEFAULT_ORGANIZATION_ID;
-    }
-  };
-
   const buildRequest = (token?: string) => ({
     ...init,
     headers: {
       "content-type": "application/json",
-      "x-organization-id": resolveOrganizationId(token),
+      "x-organization-id": token ? resolveOrganizationIdFromToken(token) : getConfiguredOrganizationId(),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
       ...(init?.headers ?? {})
     },

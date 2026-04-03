@@ -7,7 +7,7 @@ import { pool, withTransaction } from "@quiz-app/db";
 import type { PoolClient } from "pg";
 
 import { config } from "../env.js";
-import { normalizeOrganizationId } from "./tenant.js";
+import { parseOrganizationId } from "./tenant.js";
 
 const REFRESH_COOKIE = "quiz_refresh";
 const jwtKey = new TextEncoder().encode(config.jwtSecret);
@@ -44,14 +44,14 @@ async function signAccessToken(user: SessionIdentity) {
     .sign(jwtKey);
 }
 
-async function insertRefreshToken(client: PoolClient, userId: string) {
+async function insertRefreshToken(client: PoolClient, userId: string, organizationId: string) {
   const rawToken = randomBytes(32).toString("hex");
   const tokenHash = sha256Hex(rawToken);
   const expiresAt = new Date(Date.now() + config.refreshTokenTtlDays * 24 * 60 * 60 * 1000);
 
   await client.query(
-    "INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)",
-    [userId, tokenHash, expiresAt]
+    "INSERT INTO refresh_tokens (user_id, organization_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)",
+    [userId, organizationId, tokenHash, expiresAt]
   );
 
   return { rawToken, expiresAt };
@@ -59,7 +59,7 @@ async function insertRefreshToken(client: PoolClient, userId: string) {
 
 export async function createSession(user: SessionIdentity) {
   return withTransaction(async (client) => {
-    const refresh = await insertRefreshToken(client, user.id);
+    const refresh = await insertRefreshToken(client, user.id, user.organization_id);
 
     return {
       accessToken: await signAccessToken(user),
@@ -86,14 +86,16 @@ export async function rotateSession(rawRefreshToken: string) {
         SELECT
           rt.id,
           rt.user_id,
-          u.organization_id,
+          rt.organization_id,
           rt.expires_at,
           rt.revoked_at,
           u.email,
           u.is_admin,
           u.is_banned
         FROM refresh_tokens rt
-        JOIN users u ON u.id = rt.user_id
+        JOIN users u
+          ON u.id = rt.user_id
+         AND u.organization_id = rt.organization_id
         WHERE rt.token_hash = $1
         LIMIT 1
       `,
@@ -110,7 +112,7 @@ export async function rotateSession(rawRefreshToken: string) {
     }
 
     await client.query("UPDATE refresh_tokens SET revoked_at = NOW() WHERE id = $1", [tokenRow.id]);
-    const refresh = await insertRefreshToken(client, tokenRow.user_id);
+    const refresh = await insertRefreshToken(client, tokenRow.user_id, tokenRow.organization_id);
 
     return {
       accessToken: await signAccessToken({
@@ -181,8 +183,8 @@ export async function authenticateAccessToken(token: string, expectedOrganizatio
       return { user: null, error: "Token is missing organization context" as const };
     }
 
-    const organizationId = normalizeOrganizationId(rawOrganizationId);
-    if (organizationId !== rawOrganizationId) {
+    const organizationId = parseOrganizationId(rawOrganizationId);
+    if (!organizationId) {
       return { user: null, error: "Token organization is invalid" as const };
     }
 
@@ -221,7 +223,10 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
     return reply.code(400).send({ message: "Missing x-organization-id header" });
   }
 
-  const expectedOrganizationId = normalizeOrganizationId(rawExpectedOrganizationId);
+  const expectedOrganizationId = parseOrganizationId(rawExpectedOrganizationId);
+  if (!expectedOrganizationId) {
+    return reply.code(400).send({ message: "Invalid x-organization-id header" });
+  }
   const result = await authenticateAccessToken(token, expectedOrganizationId);
 
   if (!result.user) {

@@ -43,6 +43,22 @@ const amountSchema = z.object({
   amount: z.number().positive().max(100000)
 });
 
+function getContestPublishError(contest: { status: string; starts_at: string }, questionCount: number) {
+  if (contest.status !== "draft") {
+    return "Contest must be in draft status before publishing";
+  }
+
+  if (questionCount < 1) {
+    return "Contest must have at least one question before publishing";
+  }
+
+  if (new Date(contest.starts_at).getTime() <= Date.now()) {
+    return "Contest start time must be in the future before publishing";
+  }
+
+  return null;
+}
+
 export async function adminRoutes(app: FastifyInstance) {
   app.get("/admin/wallet-requests/stream", async (request, reply) => {
     const accessToken = String(((request.query as { access_token?: string })?.access_token) ?? "");
@@ -57,6 +73,8 @@ export async function adminRoutes(app: FastifyInstance) {
       return reply.code(403).send({ message: "Admin access required" });
     }
 
+    const currentUser = authResult.user;
+
     reply.hijack();
     reply.raw.writeHead(200, {
       "content-type": "text/event-stream",
@@ -69,7 +87,7 @@ export async function adminRoutes(app: FastifyInstance) {
       reply.raw.write(`event: ping\ndata: {"ts":"${new Date().toISOString()}"}\n\n`);
     }, 25000);
 
-    const stream = await registerWalletRequestStream((event) => {
+    const stream = await registerWalletRequestStream(currentUser.organization_id, (event) => {
       reply.raw.write(`event: wallet_request_created\ndata: ${JSON.stringify(event)}\n\n`);
     });
 
@@ -169,8 +187,15 @@ export async function adminRoutes(app: FastifyInstance) {
     return { requests: result.rows };
   });
 
-  app.post("/admin/contests", { preHandler: requireAdmin }, async (request) => {
+  app.post("/admin/contests", { preHandler: requireAdmin }, async (request, reply) => {
     const body = contestSchema.parse(request.body);
+
+    if (new Date(body.starts_at).getTime() <= Date.now()) {
+      return reply.code(422).send({
+        message: "Contest start time must be in the future"
+      });
+    }
+
     const result = await pool.query(
       `
         INSERT INTO contests (title, starts_at, entry_fee, max_members, prize_rule, created_by, organization_id)
@@ -200,6 +225,7 @@ export async function adminRoutes(app: FastifyInstance) {
         `
           INSERT INTO questions (
             contest_id,
+            organization_id,
             seq,
             body,
             option_a,
@@ -211,6 +237,7 @@ export async function adminRoutes(app: FastifyInstance) {
           )
           SELECT
             c.id,
+            c.organization_id,
             $2,
             $3,
             $4,
@@ -273,6 +300,7 @@ export async function adminRoutes(app: FastifyInstance) {
         FROM questions q
         JOIN contests c ON c.id = q.contest_id
         WHERE q.contest_id = $1
+          AND q.organization_id = $2
           AND c.organization_id = $2
       `,
       [contestId, request.user.organization_id]
@@ -281,24 +309,35 @@ export async function adminRoutes(app: FastifyInstance) {
     const contest = contestResult.rows[0];
     const questionCount = Number(questionCountResult.rows[0].count);
 
-    if (contest.status !== "draft" || questionCount < 1 || new Date(contest.starts_at).getTime() <= Date.now()) {
+    const publishError = getContestPublishError(contest, questionCount);
+
+    if (publishError) {
       return reply.code(422).send({
-        message: "Contest must be draft, have at least one question, and start in the future"
+        message: publishError
       });
     }
 
     await pool.query(
-      "UPDATE contests SET status = 'open', updated_at = NOW() WHERE id = $1 AND organization_id = $2",
+      `
+        UPDATE contests
+        SET status = 'open',
+            lifecycle_status = 'PENDING',
+            updated_at = NOW()
+        WHERE id = $1
+          AND organization_id = $2
+      `,
       [contestId, request.user.organization_id]
     );
 
     const delay = Math.max(0, new Date(contest.starts_at).getTime() - Date.now());
     await contestLifecycleQueue.add(
       contestLifecycleJobNames.startContest,
-      { contestId },
+      { organizationId: request.user.organization_id, contestId },
       {
-        jobId: makeJobId(contestLifecycleJobNames.startContest, contestId),
-        delay
+        jobId: makeJobId(request.user.organization_id, contestLifecycleJobNames.startContest, contestId),
+        delay,
+        // Contest start is retried a few times before we cancel and refund.
+        attempts: 3
       }
     );
 
@@ -462,7 +501,7 @@ export async function adminRoutes(app: FastifyInstance) {
     };
   });
 
-  app.get("/admin/jobs", { preHandler: requireAdmin }, async () => {
+  app.get("/admin/jobs", { preHandler: requireAdmin }, async (request) => {
     const states: Array<"active" | "delayed" | "waiting" | "failed"> = [
       "active",
       "delayed",
@@ -477,22 +516,24 @@ export async function adminRoutes(app: FastifyInstance) {
     const jobsByQueue = await Promise.all(
       queues.map(async ({ name, queue }) => {
         const jobs = await queue.getJobs(states);
-        return jobs.map((job) => ({
-          job_id: job.id,
-          queue: name,
-          job_name: job.name,
-          data: job.data,
-          status: job.failedReason
-            ? "failed"
-            : job.processedOn
-              ? "active"
-              : job.delay > 0
-                ? "delayed"
-                : "waiting",
-          attempts: job.attemptsMade,
-          failed_reason: job.failedReason ?? null,
-          scheduled_for: new Date(job.timestamp + job.delay).toISOString()
-        }));
+        return jobs
+          .filter((job) => (job.data as { organizationId?: string }).organizationId === request.user.organization_id)
+          .map((job) => ({
+            job_id: job.id,
+            queue: name,
+            job_name: job.name,
+            data: job.data,
+            status: job.failedReason
+              ? "failed"
+              : job.processedOn
+                ? "active"
+                : job.delay > 0
+                  ? "delayed"
+                  : "waiting",
+            attempts: job.attemptsMade,
+            failed_reason: job.failedReason ?? null,
+            scheduled_for: new Date(job.timestamp + job.delay).toISOString()
+          }));
       })
     );
 
@@ -505,6 +546,10 @@ export async function adminRoutes(app: FastifyInstance) {
     const job = await queue.getJob(jobId);
 
     if (job) {
+      if ((job.data as { organizationId?: string }).organizationId !== request.user.organization_id) {
+        return reply.code(404).send({ message: "Job not found" });
+      }
+
       if (job.failedReason) {
         await job.retry();
         return { success: true, mode: "retried_failed_job" };
@@ -517,15 +562,15 @@ export async function adminRoutes(app: FastifyInstance) {
       return reply.code(404).send({ message: "Missing payout job cannot be reconstructed automatically" });
     }
 
-    const [jobName, contestId, seq] = jobId.split("__");
+    const [organizationId, jobName, contestId, seq] = jobId.split("__");
 
-    if (!jobName || !contestId) {
+    if (!organizationId || !jobName || !contestId || organizationId !== request.user.organization_id) {
       return reply.code(400).send({ message: "Invalid job id format" });
     }
 
     await queue.add(
       jobName,
-      { contestId, seq: seq ? Number(seq) : undefined },
+      { organizationId, contestId, seq: seq ? Number(seq) : undefined },
       { jobId }
     );
 
@@ -534,13 +579,13 @@ export async function adminRoutes(app: FastifyInstance) {
 
   app.post("/admin/contests/:id/rebuild-cache", { preHandler: requireAdmin }, async (request) => {
     const contestId = String((request.params as { id: string }).id);
-    return rebuildContestCache(contestId);
+    return rebuildContestCache(contestId, request.user.organization_id);
   });
 
   app.post("/admin/contests/:id/recover", { preHandler: requireAdmin }, async (request) => {
     const contestId = String((request.params as { id: string }).id);
-    const cache = await rebuildContestCache(contestId);
-    const jobs = await ensureContestJobs(contestId);
+    const cache = await rebuildContestCache(contestId, request.user.organization_id);
+    const jobs = await ensureContestJobs(contestId, request.user.organization_id);
 
     return {
       success: true,

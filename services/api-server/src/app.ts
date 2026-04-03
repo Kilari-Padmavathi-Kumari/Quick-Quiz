@@ -74,6 +74,16 @@ export async function buildApp() {
       });
     }
 
+    if (error instanceof Error) {
+      const maybeHttpError = error as Error & { statusCode?: number };
+
+      if (typeof maybeHttpError.statusCode === "number") {
+        return reply.code(maybeHttpError.statusCode).send({
+          message: maybeHttpError.message
+        });
+      }
+    }
+
     reply.log.error({ err: error }, "Unhandled API error");
     return reply.code(500).send({
       message: error instanceof Error ? error.message : "Internal server error"

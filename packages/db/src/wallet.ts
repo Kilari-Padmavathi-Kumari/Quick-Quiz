@@ -8,6 +8,7 @@ interface WalletMutationInput {
   amountPaise: number;
   type: "credit" | "debit";
   reason: "entry_fee" | "prize" | "refund" | "topup" | "manual_topup";
+  transactionStatus?: "PENDING" | "SUCCESS" | "FAILED" | "REFUNDED";
   referenceId?: string | null;
   metadata?: Record<string, unknown>;
 }
@@ -48,19 +49,21 @@ export async function mutateWalletBalance(
         organization_id,
         type,
         reason,
+        tx_status,
         amount,
         balance_before,
         balance_after,
         reference_id,
         metadata
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb)
     `,
     [
       input.userId,
       input.organizationId,
       input.type,
       input.reason,
+      input.transactionStatus ?? "SUCCESS",
       paiseToMoney(input.amountPaise),
       paiseToMoney(balanceBeforePaise),
       paiseToMoney(nextBalancePaise),

@@ -41,7 +41,7 @@ export const config = {
   authCodeTtlMinutes: toNumber(process.env.AUTH_CODE_TTL_MINUTES, 10),
   authDevCode: process.env.AUTH_DEV_CODE ?? "123456",
   authDevPassword: process.env.AUTH_DEV_PASSWORD ?? "Quiz@1234",
-  defaultOrganizationId: process.env.DEFAULT_ORGANIZATION_ID ?? "00000000-0000-0000-0000-000000000001",
+  defaultOrganizationId: process.env.DEFAULT_ORGANIZATION_ID ?? "",
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? "",
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
   googleRedirectUri:

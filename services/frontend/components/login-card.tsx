@@ -13,6 +13,10 @@ export function LoginCard({ targetHref = "/dashboard" }: LoginCardProps) {
   const [isPending, setIsPending] = useState(false);
 
   function continueWithGoogle() {
+    if (!DEFAULT_ORGANIZATION_ID) {
+      throw new Error("Missing NEXT_PUBLIC_ORGANIZATION_ID for Google sign-in.");
+    }
+
     setIsPending(true);
     const googleUrl = new URL(`${API_URL}/auth/google`);
     googleUrl.searchParams.set("redirect_to", targetHref);

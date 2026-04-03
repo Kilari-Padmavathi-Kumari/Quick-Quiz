@@ -6,7 +6,7 @@ import {
 
 const makeJobId = (...parts: Array<string | number>) => parts.join("__");
 
-export async function ensureContestJobs(contestId: string) {
+export async function ensureContestJobs(contestId: string, organizationId: string) {
   const contestResult = await pool.query<{
     id: string;
     status: string;
@@ -18,9 +18,10 @@ export async function ensureContestJobs(contestId: string) {
       SELECT id, status, starts_at, current_q, q_started_at
       FROM contests
       WHERE id = $1
+        AND organization_id = $2
       LIMIT 1
     `,
-    [contestId]
+    [contestId, organizationId]
   );
 
   if (contestResult.rowCount !== 1) {
@@ -34,22 +35,26 @@ export async function ensureContestJobs(contestId: string) {
     revealed_at: string | null;
   }>(
     `
-      SELECT seq, time_limit_sec, revealed_at
-      FROM questions
-      WHERE contest_id = $1
+      SELECT q.seq, q.time_limit_sec, q.revealed_at
+      FROM questions q
+      JOIN contests c ON c.id = q.contest_id
+      WHERE q.contest_id = $1
+        AND q.organization_id = $2
+        AND c.organization_id = $2
       ORDER BY seq ASC
     `,
-    [contestId]
+    [contestId, organizationId]
   );
 
   if (contest.status === "open") {
     const delay = Math.max(0, new Date(contest.starts_at).getTime() - Date.now());
     await contestLifecycleQueue.add(
       contestLifecycleJobNames.startContest,
-      { contestId },
+      { organizationId, contestId },
       {
-        jobId: makeJobId(contestLifecycleJobNames.startContest, contestId),
-        delay
+        jobId: makeJobId(organizationId, contestLifecycleJobNames.startContest, contestId),
+        delay,
+        attempts: 3
       }
     );
     return { contestId, action: "scheduled-start" };
@@ -75,9 +80,9 @@ export async function ensureContestJobs(contestId: string) {
   if (!currentQuestion.revealed_at) {
     await contestLifecycleQueue.add(
       contestLifecycleJobNames.revealQuestion,
-      { contestId, seq: contest.current_q },
+      { organizationId, contestId, seq: contest.current_q },
       {
-        jobId: makeJobId(contestLifecycleJobNames.revealQuestion, contestId, contest.current_q),
+        jobId: makeJobId(organizationId, contestLifecycleJobNames.revealQuestion, contestId, contest.current_q),
         delay: revealDelay
       }
     );
@@ -88,9 +93,9 @@ export async function ensureContestJobs(contestId: string) {
   if (nextQuestion) {
     await contestLifecycleQueue.add(
       contestLifecycleJobNames.broadcastQuestion,
-      { contestId, seq: nextQuestion.seq },
+      { organizationId, contestId, seq: nextQuestion.seq },
       {
-        jobId: makeJobId(contestLifecycleJobNames.broadcastQuestion, contestId, nextQuestion.seq),
+        jobId: makeJobId(organizationId, contestLifecycleJobNames.broadcastQuestion, contestId, nextQuestion.seq),
         delay: revealDelay + 3000
       }
     );
@@ -99,9 +104,9 @@ export async function ensureContestJobs(contestId: string) {
 
   await contestLifecycleQueue.add(
     contestLifecycleJobNames.endContest,
-    { contestId },
+    { organizationId, contestId },
     {
-      jobId: makeJobId(contestLifecycleJobNames.endContest, contestId),
+      jobId: makeJobId(organizationId, contestLifecycleJobNames.endContest, contestId),
       delay: revealDelay + 3000
     }
   );

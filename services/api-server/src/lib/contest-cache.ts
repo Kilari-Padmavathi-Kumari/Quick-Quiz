@@ -9,7 +9,7 @@ import {
 
 import { redis } from "./redis.js";
 
-export async function rebuildContestCache(contestId: string) {
+export async function rebuildContestCache(contestId: string, organizationId: string) {
   const [contestResult, questionsResult, membersResult, scoresResult, answeredResult] =
     await Promise.all([
       pool.query<{
@@ -21,9 +21,10 @@ export async function rebuildContestCache(contestId: string) {
           SELECT current_q, q_started_at, status
           FROM contests
           WHERE id = $1
+            AND organization_id = $2
           LIMIT 1
         `,
-        [contestId]
+        [contestId, organizationId]
       ),
       pool.query<{
         seq: number;
@@ -36,35 +37,53 @@ export async function rebuildContestCache(contestId: string) {
         time_limit_sec: number;
       }>(
         `
-          SELECT seq, body, option_a, option_b, option_c, option_d, correct_option, time_limit_sec
-          FROM questions
-          WHERE contest_id = $1
+          SELECT q.seq, q.body, q.option_a, q.option_b, q.option_c, q.option_d, q.correct_option, q.time_limit_sec
+          FROM questions q
+          JOIN contests c ON c.id = q.contest_id
+          WHERE q.contest_id = $1
+            AND q.organization_id = $2
+            AND c.organization_id = $2
           ORDER BY seq ASC
         `,
-        [contestId]
+        [contestId, organizationId]
       ),
       pool.query<{ user_id: string }>(
-        "SELECT user_id FROM contest_members WHERE contest_id = $1 ORDER BY joined_at ASC",
-        [contestId]
+        `
+          SELECT cm.user_id
+          FROM contest_members cm
+          JOIN contests c ON c.id = cm.contest_id
+          WHERE cm.contest_id = $1
+            AND cm.organization_id = $2
+            AND c.organization_id = $2
+          ORDER BY cm.joined_at ASC
+        `,
+        [contestId, organizationId]
       ),
       pool.query<{ user_id: string; correct_count: string }>(
         `
-          SELECT user_id, COUNT(*) FILTER (WHERE is_correct = true)::text AS correct_count
-          FROM answers
-          WHERE contest_id = $1
-          GROUP BY user_id
+          SELECT a.user_id, COUNT(*) FILTER (WHERE a.is_correct = true)::text AS correct_count
+          FROM answers a
+          JOIN contests c ON c.id = a.contest_id
+          WHERE a.contest_id = $1
+            AND a.organization_id = $2
+            AND c.organization_id = $2
+          GROUP BY a.user_id
         `,
-        [contestId]
+        [contestId, organizationId]
       ),
       pool.query<{ seq: number; user_id: string }>(
         `
           SELECT q.seq, a.user_id
           FROM answers a
           JOIN questions q ON q.id = a.question_id
+          JOIN contests c ON c.id = a.contest_id
           WHERE a.contest_id = $1
+            AND a.organization_id = $2
+            AND q.organization_id = $2
+            AND c.organization_id = $2
           ORDER BY q.seq ASC
         `,
-        [contestId]
+        [contestId, organizationId]
       )
     ]);
 
@@ -75,12 +94,13 @@ export async function rebuildContestCache(contestId: string) {
   const contest = contestResult.rows[0];
   const multi = redis.multi();
 
-  multi.del(contestStateKey(contestId));
-  multi.del(contestMembersKey(contestId));
-  multi.del(contestScoresKey(contestId));
+  multi.del(contestStateKey(organizationId, contestId));
+  multi.del(contestMembersKey(organizationId, contestId));
+  multi.del(contestScoresKey(organizationId, contestId));
 
   if (contest.current_q > 0 && contest.q_started_at) {
-    multi.hset(contestStateKey(contestId), {
+    multi.hset(contestStateKey(organizationId, contestId), {
+      organization_id: organizationId,
       current_q: String(contest.current_q),
       q_started_at: String(new Date(contest.q_started_at).getTime())
     });
@@ -88,14 +108,15 @@ export async function rebuildContestCache(contestId: string) {
 
   if (membersResult.rows.length > 0) {
     multi.sadd(
-      contestMembersKey(contestId),
+      contestMembersKey(organizationId, contestId),
       ...membersResult.rows.map((member) => member.user_id)
     );
   }
 
   for (const question of questionsResult.rows) {
-    multi.del(contestQuestionKey(contestId, question.seq));
-    multi.hset(contestQuestionKey(contestId, question.seq), {
+    multi.del(contestQuestionKey(organizationId, contestId, question.seq));
+    multi.hset(contestQuestionKey(organizationId, contestId, question.seq), {
+      organization_id: organizationId,
       seq: String(question.seq),
       body: question.body,
       option_a: question.option_a,
@@ -109,7 +130,7 @@ export async function rebuildContestCache(contestId: string) {
 
   if (scoresResult.rows.length > 0) {
     multi.hset(
-      contestScoresKey(contestId),
+      contestScoresKey(organizationId, contestId),
       ...scoresResult.rows.flatMap((row) => [row.user_id, row.correct_count])
     );
   }
@@ -123,9 +144,9 @@ export async function rebuildContestCache(contestId: string) {
   }
 
   for (const [seq, userIds] of answeredBySeq.entries()) {
-    multi.del(contestAnsweredKey(contestId, seq));
+    multi.del(contestAnsweredKey(organizationId, contestId, seq));
     if (userIds.length > 0) {
-      multi.sadd(contestAnsweredKey(contestId, seq), ...userIds);
+      multi.sadd(contestAnsweredKey(organizationId, contestId, seq), ...userIds);
     }
   }
 

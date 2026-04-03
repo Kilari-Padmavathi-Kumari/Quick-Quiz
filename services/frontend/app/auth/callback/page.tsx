@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 import { SiteShell } from "../../../components/site-shell";
 import { getTokenExpiry, setStoredSession } from "../../../lib/session";
-import { API_URL, DEFAULT_ORGANIZATION_ID } from "../../../lib/config";
+import { API_URL } from "../../../lib/config";
 
 export default function AuthCallbackPage() {
   const router = useRouter();
@@ -35,26 +35,23 @@ export default function AuthCallbackPage() {
 
     void (async () => {
       try {
-        const resolveOrganizationId = (token: string) => {
-          try {
-            const payload = token.split(".")[1];
-            if (!payload) {
-              return DEFAULT_ORGANIZATION_ID;
-            }
+        const payload = accessToken.split(".")[1];
+        if (!payload) {
+          throw new Error("Access token is missing organization context.");
+        }
 
-            const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-            const decoded = window.atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="));
-            const parsed = JSON.parse(decoded) as { organization_id?: string };
-            return parsed.organization_id ?? DEFAULT_ORGANIZATION_ID;
-          } catch {
-            return DEFAULT_ORGANIZATION_ID;
-          }
-        };
+        const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+        const decoded = window.atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="));
+        const parsed = JSON.parse(decoded) as { organization_id?: string };
+
+        if (!parsed.organization_id) {
+          throw new Error("Access token organization is missing.");
+        }
 
         const response = await fetch(`${API_URL}/auth/me`, {
           headers: {
             authorization: `Bearer ${accessToken}`,
-            "x-organization-id": resolveOrganizationId(accessToken)
+            "x-organization-id": parsed.organization_id
           },
           credentials: "include",
           cache: "no-store"

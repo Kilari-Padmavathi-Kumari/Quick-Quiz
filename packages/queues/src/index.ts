@@ -1,16 +1,19 @@
 import { Queue } from "bullmq";
 
 export interface ContestLifecycleJobPayload {
+  organizationId: string;
   contestId: string;
   seq?: number;
 }
 
 export interface PrizeCreditJobPayload {
+  organizationId: string;
   contestId: string;
   userId: string;
 }
 
 export interface RefundJobPayload {
+  organizationId: string;
   contestId: string;
   userId?: string;
 }

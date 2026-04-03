@@ -16,7 +16,8 @@
     "dev:worker": "pnpm --filter @quiz-app/worker-server dev",
     "lint": "pnpm -r lint",
     "reset:local": "powershell -ExecutionPolicy Bypass -File ./scripts/reset-local.ps1",
-    "test:socket-client": "dotenv -e .env -- tsx scripts/socket-test-client.ts"
+    "test:socket-client": "dotenv -e .env -- tsx scripts/socket-test-client.ts",
+    "test:multi-tenant": "dotenv -e .env -- tsx scripts/multi-tenant-smoke-test.ts"
   },
   "devDependencies": {
     "@types/node": "^24.6.0",

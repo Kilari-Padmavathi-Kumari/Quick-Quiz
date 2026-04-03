@@ -1,13 +1,15 @@
 import type { FastifyRequest } from "fastify";
 import { z } from "zod";
 
-import { config } from "../env.js";
-
 const organizationIdSchema = z.uuid();
 
-export function normalizeOrganizationId(value: string | undefined) {
-  const parsed = organizationIdSchema.safeParse(value);
-  return parsed.success ? parsed.data : config.defaultOrganizationId;
+function invalidOrganizationIdError(message: string) {
+  return Object.assign(new Error(message), { statusCode: 400 });
+}
+
+export function parseOrganizationId(value: string | undefined) {
+  const parsed = organizationIdSchema.safeParse(value?.trim());
+  return parsed.success ? parsed.data : null;
 }
 
 export function requireOrganizationId(request: FastifyRequest) {
@@ -16,7 +18,16 @@ export function requireOrganizationId(request: FastifyRequest) {
     ? headerValue
     : Array.isArray(headerValue)
       ? headerValue[0]
-      : request.user?.organization_id;
+      : undefined;
 
-  return normalizeOrganizationId(organizationId);
+  if (!organizationId) {
+    throw invalidOrganizationIdError("Missing x-organization-id header");
+  }
+
+  const parsedOrganizationId = parseOrganizationId(organizationId);
+  if (!parsedOrganizationId) {
+    throw invalidOrganizationIdError("Invalid x-organization-id header");
+  }
+
+  return parsedOrganizationId;
 }

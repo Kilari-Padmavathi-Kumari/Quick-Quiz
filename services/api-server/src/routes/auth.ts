@@ -17,9 +17,9 @@ import {
   setRefreshCookie
 } from "../lib/auth.js";
 import { redis } from "../lib/redis.js";
+import { enforceRateLimit } from "../lib/rate-limit.js";
 import {
   lookupOrganizationIdBySlug,
-  parseOrganizationId,
   requireResolvedOrganizationId
 } from "../lib/tenant.js";
 
@@ -125,6 +125,27 @@ async function resolveUserFromOauth({
   avatarUrl?: string | null;
 }) {
   return withTransaction(async (client) => {
+    const loadUserByOrganizationEmail = async () =>
+      client.query<{
+        id: string;
+        organization_id: string;
+        email: string;
+        name: string;
+        avatar_url: string | null;
+        wallet_balance: string;
+        is_admin: boolean;
+        is_banned: boolean;
+      }>(
+        `
+          SELECT id, organization_id, email, name, avatar_url, wallet_balance, is_admin, is_banned
+          FROM users
+          WHERE organization_id = $1
+            AND email = $2
+          LIMIT 1
+        `,
+        [organizationId, email]
+      );
+
     const organizationResult = await client.query<{
       admin_email: string;
     }>(
@@ -207,25 +228,7 @@ async function resolveUserFromOauth({
       ).rows[0];
     }
 
-    const existingUser = await client.query<{
-      id: string;
-      organization_id: string;
-      email: string;
-      name: string;
-      avatar_url: string | null;
-      wallet_balance: string;
-      is_admin: boolean;
-      is_banned: boolean;
-    }>(
-      `
-        SELECT id, organization_id, email, name, avatar_url, wallet_balance, is_admin, is_banned
-        FROM users
-        WHERE organization_id = $1
-          AND email = $2
-        LIMIT 1
-      `,
-      [organizationId, email]
-    );
+    const existingUser = await loadUserByOrganizationEmail();
 
     const user =
       existingUser.rows[0]
@@ -264,35 +267,53 @@ async function resolveUserFromOauth({
               ]
             )
           ).rows[0]
-        : (
-            await client.query<{
-              id: string;
-              organization_id: string;
-              email: string;
-              name: string;
-              avatar_url: string | null;
-              wallet_balance: string;
-              is_admin: boolean;
-              is_banned: boolean;
-            }>(
-              `
-                INSERT INTO users (organization_id, email, name, avatar_url, is_admin, wallet_balance)
-                VALUES ($1, $2, $3, $4, $5, '100.00')
-                RETURNING id, organization_id, email, name, avatar_url, wallet_balance, is_admin, is_banned
-              `,
-              [
-                organizationId,
-                email,
-                name,
-                resolveAvatarUrl({
-                  avatarUrl,
-                  name,
-                  email
-                }),
-                shouldGrantAdmin
-              ]
-            )
-          ).rows[0];
+        : await (async () => {
+            try {
+              return (
+                await client.query<{
+                  id: string;
+                  organization_id: string;
+                  email: string;
+                  name: string;
+                  avatar_url: string | null;
+                  wallet_balance: string;
+                  is_admin: boolean;
+                  is_banned: boolean;
+                }>(
+                  `
+                    INSERT INTO users (organization_id, email, name, avatar_url, is_admin, wallet_balance)
+                    VALUES ($1, $2, $3, $4, $5, '100.00')
+                    RETURNING id, organization_id, email, name, avatar_url, wallet_balance, is_admin, is_banned
+                  `,
+                  [
+                    organizationId,
+                    email,
+                    name,
+                    resolveAvatarUrl({
+                      avatarUrl,
+                      name,
+                      email
+                    }),
+                    shouldGrantAdmin
+                  ]
+                )
+              ).rows[0];
+            } catch (error) {
+              if (
+                error &&
+                typeof error === "object" &&
+                "code" in error &&
+                error.code === "23505"
+              ) {
+                const conflictedUser = await loadUserByOrganizationEmail();
+                if (conflictedUser.rowCount === 1) {
+                  return conflictedUser.rows[0];
+                }
+              }
+
+              throw error;
+            }
+          })();
 
     await client.query(
       `
@@ -358,8 +379,9 @@ async function verifyGoogleIdToken(idToken: string) {
 
   const email = String(payload.email ?? "").toLowerCase();
   const sub = String(payload.sub ?? "");
+  const emailVerified = payload.email_verified === true;
 
-  if (!email || !sub) {
+  if (!email || !sub || !emailVerified) {
     throw new Error("Invalid Google token payload");
   }
 
@@ -394,9 +416,8 @@ function resolveFrontendRedirect(target?: string) {
   }
 }
 
-function buildFrontendAuthCallbackUrl(accessToken: string, redirectTo: string) {
+function buildFrontendAuthCallbackUrl(redirectTo: string) {
   const callbackUrl = new URL("/auth/callback", config.frontendUrl);
-  callbackUrl.searchParams.set("access_token", accessToken);
   callbackUrl.searchParams.set("next", redirectTo);
   return callbackUrl.toString();
 }
@@ -444,27 +465,31 @@ async function exchangeGoogleAuthorizationCode(code: string) {
 
 export async function authRoutes(app: FastifyInstance) {
   app.get("/auth/google", async (request, reply) => {
+    await enforceRateLimit(request, {
+      scope: "auth-google-start",
+      limit: 20,
+      windowSec: 60
+    });
+
     if (!config.googleClientId || !config.googleClientSecret) {
       return reply.redirect(buildFrontendErrorUrl("Google OAuth is not configured on the server."));
     }
 
     const state = randomBytes(24).toString("hex");
-    const query = request.query as { redirect_to?: string; organization_id?: string; organization?: string; organization_slug?: string };
+    const query = request.query as { redirect_to?: string; organization?: string; organization_slug?: string };
     const redirectTo = resolveFrontendRedirect(String(query.redirect_to ?? ""));
-    let organizationId = parseOrganizationId(String(query.organization_id ?? ""));
+    const organizationSlug = String(query.organization_slug ?? query.organization ?? "").trim().toLowerCase();
 
-    if (!organizationId) {
-      const organizationSlug = String(query.organization_slug ?? query.organization ?? "").trim().toLowerCase();
+    if (!organizationSlug) {
+      return reply.redirect(buildFrontendErrorUrl("Missing organization slug."));
+    }
 
-      if (!organizationSlug) {
-        return reply.redirect(buildFrontendErrorUrl("Missing organization slug."));
-      }
+    let organizationId: string;
 
-      try {
-        organizationId = await lookupOrganizationIdBySlug(organizationSlug);
-      } catch (error) {
-        return reply.redirect(buildFrontendErrorUrl(error instanceof Error ? error.message : "Organization not found."));
-      }
+    try {
+      organizationId = await lookupOrganizationIdBySlug(organizationSlug);
+    } catch (error) {
+      return reply.redirect(buildFrontendErrorUrl(error instanceof Error ? error.message : "Organization not found."));
     }
 
     await redis.setex(
@@ -489,6 +514,12 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.get("/auth/google/callback", async (request, reply) => {
+    await enforceRateLimit(request, {
+      scope: "auth-google-callback",
+      limit: 20,
+      windowSec: 60
+    });
+
     const { code, state, error } = request.query as {
       code?: string;
       state?: string;
@@ -531,13 +562,17 @@ export async function authRoutes(app: FastifyInstance) {
       }
 
       setRefreshCookie(reply, sessionResult.session.refreshToken);
-      return reply.redirect(buildFrontendAuthCallbackUrl(sessionResult.session.accessToken, parsedState.redirect_to));
+      return reply.redirect(buildFrontendAuthCallbackUrl(parsedState.redirect_to));
     } catch (oauthError) {
       return reply.redirect(buildFrontendErrorUrl(oauthError instanceof Error ? oauthError.message : "Google OAuth failed"));
     }
   });
 
   app.post("/auth/email-login", async (request, reply) => {
+    if (process.env.NODE_ENV === "production") {
+      return reply.code(404).send({ message: "Not found" });
+    }
+
     const body = emailLoginSchema.parse(request.body);
     const email = body.email.trim().toLowerCase();
     const organizationId = await requireResolvedOrganizationId(request);
@@ -572,6 +607,10 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.post("/auth/request-code", async (request, reply) => {
+    if (process.env.NODE_ENV === "production") {
+      return reply.code(404).send({ message: "Not found" });
+    }
+
     const body = requestCodeSchema.parse(request.body);
     const email = body.email.trim().toLowerCase();
     const organizationId = await requireResolvedOrganizationId(request);
@@ -599,6 +638,10 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.post("/auth/password-login", async (request, reply) => {
+    if (process.env.NODE_ENV === "production") {
+      return reply.code(404).send({ message: "Not found" });
+    }
+
     const body = passwordSchema.parse(request.body);
     const email = body.email.trim().toLowerCase();
     const organizationId = await requireResolvedOrganizationId(request);
@@ -635,6 +678,10 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.post("/auth/verify-code", async (request, reply) => {
+    if (process.env.NODE_ENV === "production") {
+      return reply.code(404).send({ message: "Not found" });
+    }
+
     const body = verifyCodeSchema.parse(request.body);
     const email = body.email.trim().toLowerCase();
     const organizationId = await requireResolvedOrganizationId(request);
@@ -679,6 +726,16 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.post("/auth/google", async (request, reply) => {
+    await enforceRateLimit(request, {
+      scope: "auth-google-direct",
+      limit: 10,
+      windowSec: 60
+    });
+
+    if (process.env.NODE_ENV === "production") {
+      return reply.code(404).send({ message: "Not found" });
+    }
+
     const body = googleSchema.parse(request.body);
     const organizationId = await requireResolvedOrganizationId(request);
 
@@ -717,6 +774,12 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.post("/auth/refresh", async (request, reply) => {
+    await enforceRateLimit(request, {
+      scope: "auth-refresh",
+      limit: 30,
+      windowSec: 60
+    });
+
     const rawRefreshToken = request.cookies[getRefreshCookieName()];
 
     if (!rawRefreshToken) {

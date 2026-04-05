@@ -15,7 +15,6 @@ export default function AuthCallbackPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const accessToken = searchParams.get("access_token");
     const rawNext = searchParams.get("next") || "/dashboard";
     let nextPath = "/dashboard";
 
@@ -30,13 +29,20 @@ export default function AuthCallbackPage() {
       nextPath = "/dashboard";
     }
 
-    if (!accessToken) {
-      setError("Missing access token after Google login.");
-      return;
-    }
-
     void (async () => {
       try {
+        const refreshResponse = await fetch(`${API_URL}/auth/refresh`, {
+          method: "POST",
+          credentials: "include",
+          cache: "no-store"
+        });
+
+        if (!refreshResponse.ok) {
+          throw new Error("Failed to establish session after Google login.");
+        }
+
+        const refreshBody = (await refreshResponse.json()) as { access_token: string };
+        const accessToken = refreshBody.access_token;
         const payload = accessToken.split(".")[1];
         if (!payload) {
           throw new Error("Access token is missing organization context.");
@@ -54,8 +60,7 @@ export default function AuthCallbackPage() {
 
         const response = await fetch(`${API_URL}/auth/me`, {
           headers: {
-            authorization: `Bearer ${accessToken}`,
-            "x-organization-id": parsed.organization_id
+            authorization: `Bearer ${accessToken}`
           },
           credentials: "include",
           cache: "no-store"

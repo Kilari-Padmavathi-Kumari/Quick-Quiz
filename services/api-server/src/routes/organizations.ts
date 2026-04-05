@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { config } from "../env.js";
+import { enforceRateLimit } from "../lib/rate-limit.js";
 
 export function normalizeOrganizationSlug(value: string) {
   return value
@@ -76,6 +77,12 @@ async function findOrganizationSuggestions(input: { normalizedSlug: string; rawN
 
 export async function organizationRoutes(app: FastifyInstance) {
   app.get("/organizations/lookup", async (request, reply) => {
+    await enforceRateLimit(request, {
+      scope: "organizations-lookup",
+      limit: 30,
+      windowSec: 60
+    });
+
     const query = z.object({
       slug: z.string().min(1).max(80).optional(),
       name: z.string().min(2).max(80).optional(),

@@ -21,6 +21,7 @@ import {
   rejectWalletTopupRequest,
   retryJob
 } from "../../lib/api";
+import { appendOrganizationSlugToPath } from "../../lib/tenant";
 
 interface AdminContest {
   id: string;
@@ -411,7 +412,7 @@ export default function AdminPage() {
                     </button>
 
                     {contest.status === "ended" ? (
-                      <Link href={`/contests/${contest.id}/leaderboard`} className="solid-button">
+                      <Link href={appendOrganizationSlugToPath(`/contests/${contest.id}/leaderboard`, session.organizationSlug)} className="solid-button">
                         View Result
                       </Link>
                     ) : null}

@@ -1,5 +1,8 @@
 export interface FrontendSession {
   accessToken: string;
+  organizationId: string;
+  organizationSlug?: string | null;
+  organizationName?: string | null;
   email: string;
   name: string;
   avatarUrl?: string | null;
@@ -20,7 +23,7 @@ function decodeJwtPayload(token: string) {
 
     const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
     const decoded = window.atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="));
-    return JSON.parse(decoded) as { exp?: number };
+    return JSON.parse(decoded) as { exp?: number; organization_id?: string };
   } catch {
     return null;
   }
@@ -42,13 +45,25 @@ export function getStoredSession(): FrontendSession | null {
 
   try {
     const parsed = JSON.parse(raw) as FrontendSession;
+    const payload = decodeJwtPayload(parsed.accessToken);
+    const organizationId = parsed.organizationId ?? payload?.organization_id;
 
     if (parsed.expiresAt && parsed.expiresAt <= Date.now()) {
       window.sessionStorage.removeItem(SESSION_KEY);
       return null;
     }
 
-    return parsed;
+    if (!organizationId) {
+      window.sessionStorage.removeItem(SESSION_KEY);
+      return null;
+    }
+
+    return {
+      ...parsed,
+      organizationId,
+      organizationSlug: parsed.organizationSlug ?? null,
+      organizationName: parsed.organizationName ?? null
+    };
   } catch {
     window.sessionStorage.removeItem(SESSION_KEY);
     return null;

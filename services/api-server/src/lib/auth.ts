@@ -7,7 +7,11 @@ import { pool, withTransaction } from "@quiz-app/db";
 import type { PoolClient } from "pg";
 
 import { config } from "../env.js";
-import { parseOrganizationId } from "./tenant.js";
+import {
+  getOrganizationSlugFromRequest,
+  lookupOrganizationIdBySlug,
+  parseOrganizationId
+} from "./tenant.js";
 
 const REFRESH_COOKIE = "quiz_refresh";
 const jwtKey = new TextEncoder().encode(config.jwtSecret);
@@ -219,14 +223,31 @@ export async function authenticate(request: FastifyRequest, reply: FastifyReply)
         ? organizationHeader[0]
         : "";
 
-  if (!rawExpectedOrganizationId) {
-    return reply.code(400).send({ message: "Missing x-organization-id header" });
+  let expectedOrganizationId: string | undefined;
+
+  if (rawExpectedOrganizationId) {
+    expectedOrganizationId = parseOrganizationId(rawExpectedOrganizationId) ?? undefined;
+
+    if (!expectedOrganizationId) {
+      return reply.code(400).send({ message: "Invalid x-organization-id header" });
+    }
+  } else {
+    const organizationSlug = getOrganizationSlugFromRequest(request);
+
+    if (organizationSlug) {
+      try {
+        expectedOrganizationId = await lookupOrganizationIdBySlug(organizationSlug);
+      } catch (error) {
+        const statusCode =
+          error && typeof error === "object" && "statusCode" in error && typeof error.statusCode === "number"
+            ? error.statusCode
+            : 400;
+        const message = error instanceof Error ? error.message : "Invalid organization slug";
+        return reply.code(statusCode).send({ message });
+      }
+    }
   }
 
-  const expectedOrganizationId = parseOrganizationId(rawExpectedOrganizationId);
-  if (!expectedOrganizationId) {
-    return reply.code(400).send({ message: "Invalid x-organization-id header" });
-  }
   const result = await authenticateAccessToken(token, expectedOrganizationId);
 
   if (!result.user) {

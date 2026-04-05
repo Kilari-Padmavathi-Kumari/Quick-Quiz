@@ -1,8 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { startTransition, useState } from "react";
 
-import { API_URL, DEFAULT_ORGANIZATION_ID } from "../lib/config";
+import { API_URL } from "../lib/config";
+import { lookupOrganization, OrganizationLookupError } from "../lib/api";
+import {
+  normalizeOrganizationSlugInput,
+  storeOrganizationIdentity,
+  storeOrganizationSlug
+} from "../lib/tenant";
 
 type LoginCardProps = {
   targetHref?: string;
@@ -11,38 +17,113 @@ type LoginCardProps = {
 
 export function LoginCard({ targetHref = "/dashboard" }: LoginCardProps) {
   const [isPending, setIsPending] = useState(false);
+  const [organizationName, setOrganizationName] = useState("");
+  const [tenantError, setTenantError] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<Array<{ id: string; name: string; slug: string }>>([]);
 
   function continueWithGoogle() {
-    if (!DEFAULT_ORGANIZATION_ID) {
-      throw new Error("Missing NEXT_PUBLIC_ORGANIZATION_ID for Google sign-in.");
+    const normalizedSlug = normalizeOrganizationSlugInput(organizationName);
+
+    if (!normalizedSlug) {
+      setTenantError("Enter your organization name first.");
+      return;
     }
 
+    setTenantError(null);
+    setSuggestions([]);
     setIsPending(true);
-    const googleUrl = new URL(`${API_URL}/auth/google`);
-    googleUrl.searchParams.set("redirect_to", targetHref);
-    googleUrl.searchParams.set("organization_id", DEFAULT_ORGANIZATION_ID);
-    window.location.assign(googleUrl.toString());
+
+    startTransition(async () => {
+      try {
+        const organizationLookup = await lookupOrganization({ name: organizationName });
+        storeOrganizationIdentity({
+          id: organizationLookup.organization.id,
+          slug: organizationLookup.organization.slug,
+          name: organizationLookup.organization.name
+        });
+
+        const googleUrl = new URL(`${API_URL}/auth/google`);
+        const nextPath = new URL(targetHref, window.location.origin);
+        nextPath.searchParams.set("organization", organizationLookup.organization.slug);
+        googleUrl.searchParams.set("redirect_to", `${nextPath.pathname}${nextPath.search}${nextPath.hash}`);
+        googleUrl.searchParams.set("organization", organizationLookup.organization.slug);
+        window.location.assign(googleUrl.toString());
+      } catch (error) {
+        if (error instanceof OrganizationLookupError) {
+          setTenantError(
+            error.suggestions.length > 0
+              ? `Organization not found. Did you mean one of these?`
+              : `Organization not found for "${organizationName}".`
+          );
+          setSuggestions(error.suggestions);
+        } else {
+          setTenantError(error instanceof Error ? error.message : "Organization lookup failed.");
+        }
+        setIsPending(false);
+      }
+    });
   }
 
   return (
     <div className="auth-card auth-card--premium">
       <div className="auth-card__top">
-        <span className="chip">Secure Access</span>
-        <span className="auth-card__spark">Fast login</span>
+        <span className="chip">Login</span>
+        <span className="auth-card__spark">Continue with Google</span>
       </div>
 
-      <h2 className="card-title">Enter the arena in seconds</h2>
+      <h2 className="card-title">Sign in to your organization</h2>
       <p className="auth-card__copy">
-        Continue with Google to access contests, wallet history, leaderboard results, and admin
-        tools.
+        Enter your organization in any format and continue with Google.
       </p>
+      <label className="field" style={{ marginTop: 18 }}>
+        <span>Organization Name</span>
+        <input
+          value={organizationName}
+          name="quiz-organization-name"
+          onChange={(event) => {
+            setOrganizationName(event.target.value);
+            if (tenantError) {
+              setTenantError(null);
+            }
+            if (suggestions.length > 0) {
+              setSuggestions([]);
+            }
+          }}
+          placeholder="Fission Labs / fission-labs / fissionlabs"
+          autoComplete="new-password"
+          data-lpignore="true"
+          data-form-type="other"
+          spellCheck={false}
+        />
+      </label>
+      {tenantError ? <div className="notice error" style={{ marginTop: 12 }}>{tenantError}</div> : null}
+      {suggestions.length > 0 ? (
+        <div className="notice" style={{ marginTop: 12 }}>
+          {suggestions.map((organization) => (
+            <button
+              key={organization.id}
+              type="button"
+              className="ghost-button"
+              style={{ marginTop: 8, width: "100%" }}
+              onClick={() => {
+                setOrganizationName(organization.name);
+                storeOrganizationSlug(organization.slug);
+                setSuggestions([]);
+                setTenantError(null);
+              }}
+            >
+              {organization.name}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <div className="auth-google-block">
-        <div className="auth-google-block__label">Continue with Google</div>
+        <div className="auth-google-block__label">Sign in</div>
         <button
           className="ghost-button auth-card__ghost auth-card__google-cta"
           type="button"
-          disabled={isPending}
+          disabled={isPending || !normalizeOrganizationSlugInput(organizationName)}
           onClick={continueWithGoogle}
           style={{ width: "100%" }}
         >

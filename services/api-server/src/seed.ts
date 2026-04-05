@@ -15,6 +15,19 @@ async function seed() {
     throw new Error("DEFAULT_ORGANIZATION_ID must be set before seeding data");
   }
 
+  await pool.query(
+    `
+      INSERT INTO organizations (id, name, slug, admin_email)
+      VALUES ($1, 'Quick Quiz Arena', 'quick-quiz-arena', $2)
+      ON CONFLICT (id) DO UPDATE
+      SET name = EXCLUDED.name,
+          slug = EXCLUDED.slug,
+          admin_email = EXCLUDED.admin_email,
+          updated_at = NOW()
+    `,
+    [organizationId, config.adminEmail]
+  );
+
   for (const user of demoUsers) {
     await pool.query(
       `

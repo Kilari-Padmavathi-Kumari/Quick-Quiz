@@ -1,5 +1,14 @@
 import { API_URL, DEFAULT_ORGANIZATION_ID } from "./config";
 import { clearStoredSession, updateStoredAccessToken } from "./session";
+import {
+  isValidOrganizationId,
+  normalizeOrganizationSlugInput,
+  readStoredOrganizationId,
+  readStoredOrganizationSlug,
+  storeOrganizationId,
+  storeOrganizationIdentity,
+  storeOrganizationSlug
+} from "./tenant";
 
 export type PrizeRule = "all_correct" | "top_scorer";
 
@@ -7,6 +16,7 @@ export interface LoginResponse {
   access_token: string;
   user: {
     id: string;
+    organization_id: string;
     email: string;
     name: string;
     avatar_url?: string | null;
@@ -15,15 +25,49 @@ export interface LoginResponse {
   };
 }
 
-const UUID_PATTERN =
-  /^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/;
+export interface OrganizationSummary {
+  id: string;
+  name: string;
+  slug: string;
+  created_at: string;
+}
+
+export interface OrganizationDetails extends OrganizationSummary {
+  admin_email: string;
+}
+
+export class OrganizationLookupError extends Error {
+  suggestions: OrganizationSummary[];
+  normalizedSlug: string | null;
+
+  constructor(message: string, options?: { suggestions?: OrganizationSummary[]; normalizedSlug?: string | null }) {
+    super(message);
+    this.name = "OrganizationLookupError";
+    this.suggestions = options?.suggestions ?? [];
+    this.normalizedSlug = options?.normalizedSlug ?? null;
+  }
+}
 
 function getConfiguredOrganizationId() {
-  if (!DEFAULT_ORGANIZATION_ID || !UUID_PATTERN.test(DEFAULT_ORGANIZATION_ID)) {
-    throw new Error("Missing valid NEXT_PUBLIC_ORGANIZATION_ID for tenant-scoped requests.");
+  const storedOrganizationId = readStoredOrganizationId();
+  if (storedOrganizationId) {
+    return storedOrganizationId;
+  }
+
+  if (!DEFAULT_ORGANIZATION_ID || !isValidOrganizationId(DEFAULT_ORGANIZATION_ID)) {
+    throw new Error("Missing valid organization context. Choose an organization ID before making tenant-scoped requests.");
   }
 
   return DEFAULT_ORGANIZATION_ID;
+}
+
+function getConfiguredOrganizationSlug() {
+  const storedOrganizationSlug = readStoredOrganizationSlug();
+  if (!storedOrganizationSlug) {
+    throw new Error("Missing organization slug. Choose an organization before making tenant-scoped requests.");
+  }
+
+  return storedOrganizationSlug;
 }
 
 function resolveOrganizationIdFromToken(token: string) {
@@ -40,19 +84,27 @@ function resolveOrganizationIdFromToken(token: string) {
   const decoded = window.atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="));
   const parsed = JSON.parse(decoded) as { organization_id?: string };
 
-  if (!parsed.organization_id || !UUID_PATTERN.test(parsed.organization_id)) {
+  if (!parsed.organization_id || !isValidOrganizationId(parsed.organization_id)) {
     throw new Error("Access token organization is missing or invalid.");
   }
 
+  storeOrganizationId(parsed.organization_id);
   return parsed.organization_id;
 }
 
 async function apiFetch<T>(path: string, init?: RequestInit, accessToken?: string): Promise<T> {
+  const organizationSlug = readStoredOrganizationSlug();
+
   const buildRequest = (token?: string) => ({
     ...init,
     headers: {
       "content-type": "application/json",
-      "x-organization-id": token ? resolveOrganizationIdFromToken(token) : getConfiguredOrganizationId(),
+      ...(token
+        ? {}
+        : organizationSlug
+          ? { "x-organization-slug": organizationSlug }
+          : { "x-organization-id": getConfiguredOrganizationId() }),
+      ...(token && organizationSlug ? { "x-organization-slug": organizationSlug } : {}),
       ...(token ? { authorization: `Bearer ${token}` } : {}),
       ...(init?.headers ?? {})
     },
@@ -108,6 +160,105 @@ async function apiFetch<T>(path: string, init?: RequestInit, accessToken?: strin
   return (await response.json()) as T;
 }
 
+async function apiFetchForOrganization<T>(path: string, organizationId: string, init?: RequestInit): Promise<T> {
+  if (!isValidOrganizationId(organizationId)) {
+    throw new Error("A valid organization ID is required for this request.");
+  }
+
+  storeOrganizationId(organizationId);
+
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      ...init,
+      headers: {
+        "content-type": "application/json",
+        "x-organization-id": organizationId,
+        ...(init?.headers ?? {})
+      },
+      credentials: "include",
+      cache: "no-store"
+    });
+  } catch (error) {
+    console.error("[frontend] API request failed to reach server", {
+      path,
+      method: init?.method ?? "GET",
+      error
+    });
+    throw new Error(
+      "Failed to reach the API server. Make sure `pnpm dev:api` is running and `NEXT_PUBLIC_API_URL` matches it."
+    );
+  }
+
+  if (!response.ok) {
+    let message = `Request failed with ${response.status}`;
+
+    try {
+      const errorBody = (await response.json()) as { message?: string };
+      if (errorBody.message) {
+        message = errorBody.message;
+      }
+    } catch {
+      // ignore
+    }
+
+    throw new Error(message);
+  }
+
+  return (await response.json()) as T;
+}
+
+async function apiFetchForOrganizationSlug<T>(path: string, organizationSlug: string, init?: RequestInit): Promise<T> {
+  const normalizedSlug = organizationSlug.trim().toLowerCase();
+  if (!normalizedSlug) {
+    throw new Error("A valid organization slug is required for this request.");
+  }
+
+  storeOrganizationSlug(normalizedSlug);
+
+  let response: Response;
+
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      ...init,
+      headers: {
+        "content-type": "application/json",
+        "x-organization-slug": normalizedSlug,
+        ...(init?.headers ?? {})
+      },
+      credentials: "include",
+      cache: "no-store"
+    });
+  } catch (error) {
+    console.error("[frontend] API request failed to reach server", {
+      path,
+      method: init?.method ?? "GET",
+      error
+    });
+    throw new Error(
+      "Failed to reach the API server. Make sure `pnpm dev:api` is running and `NEXT_PUBLIC_API_URL` matches it."
+    );
+  }
+
+  if (!response.ok) {
+    let message = `Request failed with ${response.status}`;
+
+    try {
+      const errorBody = (await response.json()) as { message?: string };
+      if (errorBody.message) {
+        message = errorBody.message;
+      }
+    } catch {
+      // ignore
+    }
+
+    throw new Error(message);
+  }
+
+  return (await response.json()) as T;
+}
+
 async function refreshAccessToken() {
   try {
     const response = await fetch(`${API_URL}/auth/refresh`, {
@@ -144,6 +295,80 @@ export function logout() {
   );
 }
 
+export function getOrganizations() {
+  return Promise.resolve({ organizations: [] as OrganizationSummary[] });
+}
+
+export function lookupOrganization(input: { slug?: string; name?: string; id?: string }) {
+  const url = new URL(`${API_URL}/organizations/lookup`);
+  if (input.slug) {
+    url.searchParams.set("slug", normalizeOrganizationSlugInput(input.slug));
+  }
+  if (input.name) {
+    url.searchParams.set("name", input.name);
+  }
+  if (input.id) {
+    url.searchParams.set("id", input.id);
+  }
+
+  return fetch(url.toString(), {
+    credentials: "include",
+    cache: "no-store"
+  }).then(async (response) => {
+    const body = (await response.json()) as {
+      message?: string;
+      organization?: OrganizationDetails;
+      normalized_slug?: string;
+      suggestions?: OrganizationSummary[];
+    };
+
+    if (!response.ok || !body.organization) {
+      throw new OrganizationLookupError(body.message ?? `Failed to load organization (${response.status})`, {
+        suggestions: body.suggestions ?? [],
+        normalizedSlug: body.normalized_slug ?? null
+      });
+    }
+
+    storeOrganizationIdentity({
+      id: body.organization.id,
+      slug: body.organization.slug,
+      name: body.organization.name
+    });
+
+    return body as { organization: OrganizationDetails };
+  });
+}
+
+export function createOrganization(payload: { name: string; admin_email: string; slug?: string }) {
+  return fetch(`${API_URL}/organizations`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    credentials: "include",
+    cache: "no-store",
+    body: JSON.stringify(payload)
+  }).then(async (response) => {
+    const body = (await response.json()) as {
+      message?: string;
+      organization?: OrganizationDetails;
+      onboarding?: { login_url: string };
+    };
+
+    if (!response.ok || !body.organization) {
+      throw new Error(body.message ?? `Failed to create organization (${response.status})`);
+    }
+
+    storeOrganizationIdentity({
+      id: body.organization.id,
+      slug: body.organization.slug,
+      name: body.organization.name
+    });
+
+    return body as { organization: OrganizationDetails; onboarding: { login_url: string } };
+  });
+}
+
 export function requestLoginCode(payload: { email: string; name?: string; avatar_url?: string }) {
   return apiFetch<{
     success: boolean;
@@ -152,21 +377,30 @@ export function requestLoginCode(payload: { email: string; name?: string; avatar
     dev_code?: string;
   }>("/auth/request-code", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify({
+      ...payload,
+      organization_slug: getConfiguredOrganizationSlug()
+    })
   });
 }
 
 export function loginWithEmailOnly(payload: { email: string; name?: string; avatar_url?: string }) {
   return apiFetch<LoginResponse>("/auth/email-login", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify({
+      ...payload,
+      organization_slug: getConfiguredOrganizationSlug()
+    })
   });
 }
 
 export function verifyLoginCode(payload: { email: string; code: string }) {
   return apiFetch<LoginResponse>("/auth/verify-code", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify({
+      ...payload,
+      organization_slug: getConfiguredOrganizationSlug()
+    })
   });
 }
 
@@ -178,14 +412,20 @@ export function loginWithPassword(payload: {
 }) {
   return apiFetch<LoginResponse>("/auth/password-login", {
     method: "POST",
-    body: JSON.stringify(payload)
+    body: JSON.stringify({
+      ...payload,
+      organization_slug: getConfiguredOrganizationSlug()
+    })
   });
 }
 
 export function loginWithGoogleToken(idToken: string) {
   return apiFetch<LoginResponse>("/auth/google", {
     method: "POST",
-    body: JSON.stringify({ id_token: idToken })
+    body: JSON.stringify({
+      id_token: idToken,
+      organization_slug: getConfiguredOrganizationSlug()
+    })
   });
 }
 
@@ -313,7 +553,46 @@ export function joinContest(accessToken: string, contestId: string) {
   );
 }
 
-export function getLeaderboard(contestId: string) {
+export function getLeaderboard(contestId: string, organizationId?: string) {
+  const request = `/contests/${contestId}/leaderboard`;
+  const organizationSlug = readStoredOrganizationSlug();
+
+  if (organizationId) {
+    return apiFetchForOrganization<{
+      contest: {
+        id: string;
+        title: string;
+        prize_rule: PrizeRule;
+      };
+      leaderboard: Array<{
+        user_id: string;
+        name: string;
+        avatar_url: string | null;
+        correct_count: string;
+        is_winner: boolean;
+        prize_amount: string;
+      }>;
+    }>(request, organizationId);
+  }
+
+  if (organizationSlug) {
+    return apiFetchForOrganizationSlug<{
+      contest: {
+        id: string;
+        title: string;
+        prize_rule: PrizeRule;
+      };
+      leaderboard: Array<{
+        user_id: string;
+        name: string;
+        avatar_url: string | null;
+        correct_count: string;
+        is_winner: boolean;
+        prize_amount: string;
+      }>;
+    }>(request, organizationSlug);
+  }
+
   return apiFetch<{
     contest: {
       id: string;
@@ -328,7 +607,7 @@ export function getLeaderboard(contestId: string) {
       is_winner: boolean;
       prize_amount: string;
     }>;
-  }>(`/contests/${contestId}/leaderboard`);
+  }>(request);
 }
 
 export function getAdminContests(accessToken: string) {
@@ -480,6 +759,10 @@ export function getWalletTopupRequests(accessToken: string) {
 export function getAdminWalletRequestsStreamUrl(accessToken: string) {
   const url = new URL(`${API_URL}/admin/wallet-requests/stream`);
   url.searchParams.set("access_token", accessToken);
+  const organizationSlug = readStoredOrganizationSlug();
+  if (organizationSlug) {
+    url.searchParams.set("organization", organizationSlug);
+  }
   return url.toString();
 }
 

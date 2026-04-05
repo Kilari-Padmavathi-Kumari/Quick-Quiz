@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useEffect } from "react";
 import clsx from "clsx";
 
 import { Avatar } from "./avatar";
 import { useFrontendSession } from "./session-panel";
-import { logout } from "../lib/api";
+import { lookupOrganization, logout } from "../lib/api";
 import { clearStoredSession } from "../lib/session";
+import { getOrganizationIdFromSearchParams, getOrganizationSlugFromSearchParams, storeOrganizationId } from "../lib/tenant";
 
 export function SiteShell({
   children,
@@ -22,7 +24,23 @@ export function SiteShell({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { session } = useFrontendSession();
+
+  useEffect(() => {
+    const organizationId = getOrganizationIdFromSearchParams(searchParams);
+    if (organizationId) {
+      storeOrganizationId(organizationId);
+      return;
+    }
+
+    const organizationSlug = getOrganizationSlugFromSearchParams(searchParams);
+    if (organizationSlug) {
+      void lookupOrganization({ slug: organizationSlug }).catch(() => {
+        // Ignore lookup failures here; page-level fetches surface user-facing errors.
+      });
+    }
+  }, [searchParams]);
 
   return (
     <div className="shell">
@@ -95,6 +113,7 @@ export function SiteShell({
                 <span className="status-pill__copy">
                   <strong>{session.name}</strong>
                   <span>{session.email}</span>
+                  <span>{session.organizationName ?? session.organizationSlug ?? "Organization"}</span>
                 </span>
               </span>
             ) : (

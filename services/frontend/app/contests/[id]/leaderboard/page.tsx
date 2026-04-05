@@ -1,12 +1,13 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { startTransition, useEffect, useState } from "react";
 
 import { Avatar } from "../../../../components/avatar";
 import { useFrontendSession } from "../../../../components/session-panel";
 import { SiteShell } from "../../../../components/site-shell";
-import { getLeaderboard, type PrizeRule } from "../../../../lib/api";
+import { getLeaderboard, lookupOrganization, type PrizeRule } from "../../../../lib/api";
+import { getOrganizationIdFromSearchParams, getOrganizationSlugFromSearchParams } from "../../../../lib/tenant";
 
 interface LeaderboardRow {
   user_id: string;
@@ -45,17 +46,26 @@ function getRankDisplay(rank: number) {
 
 export default function LeaderboardPage() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const { session } = useFrontendSession();
   const contestId = params.id;
   const [rows, setRows] = useState<LeaderboardRow[]>([]);
   const [contestTitle, setContestTitle] = useState("");
   const [prizeRule, setPrizeRule] = useState<PrizeRule | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const directOrganizationId = getOrganizationIdFromSearchParams(searchParams) ?? undefined;
+  const organizationSlug = getOrganizationSlugFromSearchParams(searchParams) ?? undefined;
 
   useEffect(() => {
     startTransition(async () => {
       try {
-        const result = await getLeaderboard(contestId);
+        setError(null);
+        const organizationId =
+          session?.organizationId ??
+          directOrganizationId ??
+          (organizationSlug ? (await lookupOrganization({ slug: organizationSlug })).organization.id : undefined);
+
+        const result = await getLeaderboard(contestId, organizationId);
         setContestTitle(result.contest.title);
         setPrizeRule(result.contest.prize_rule);
         setRows(result.leaderboard);
@@ -63,7 +73,7 @@ export default function LeaderboardPage() {
         setError(loadError instanceof Error ? loadError.message : "Failed to load leaderboard");
       }
     });
-  }, [contestId]);
+  }, [contestId, directOrganizationId, organizationSlug, session?.organizationId]);
 
   return (
     <SiteShell

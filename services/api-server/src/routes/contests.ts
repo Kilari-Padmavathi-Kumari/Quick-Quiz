@@ -10,11 +10,11 @@ import type { FastifyInstance } from "fastify";
 
 import { authenticate } from "../lib/auth.js";
 import { redis } from "../lib/redis.js";
-import { requireOrganizationId } from "../lib/tenant.js";
+import { requireResolvedOrganizationId } from "../lib/tenant.js";
 
 export async function contestRoutes(app: FastifyInstance) {
   app.get("/contests", async (request) => {
-    const organizationId = requireOrganizationId(request);
+    const organizationId = await requireResolvedOrganizationId(request);
     const result = await pool.query<{
       id: string;
       title: string;
@@ -48,7 +48,7 @@ export async function contestRoutes(app: FastifyInstance) {
   });
 
   app.get("/contests/all", async (request) => {
-    const organizationId = requireOrganizationId(request);
+    const organizationId = await requireResolvedOrganizationId(request);
     const result = await pool.query<{
       id: string;
       title: string;
@@ -347,7 +347,7 @@ export async function contestRoutes(app: FastifyInstance) {
   });
 
   app.get("/contests/:id/leaderboard", async (request, reply) => {
-    const organizationId = requireOrganizationId(request);
+    const organizationId = await requireResolvedOrganizationId(request);
     const contestId = String((request.params as { id: string }).id);
     const contestResult = await pool.query<{
       title: string;

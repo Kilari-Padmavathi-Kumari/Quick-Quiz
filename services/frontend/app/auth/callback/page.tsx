@@ -4,8 +4,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { SiteShell } from "../../../components/site-shell";
+import { lookupOrganization } from "../../../lib/api";
 import { getTokenExpiry, setStoredSession } from "../../../lib/session";
 import { API_URL } from "../../../lib/config";
+import { isValidOrganizationId } from "../../../lib/tenant";
 
 export default function AuthCallbackPage() {
   const router = useRouter();
@@ -44,9 +46,11 @@ export default function AuthCallbackPage() {
         const decoded = window.atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="));
         const parsed = JSON.parse(decoded) as { organization_id?: string };
 
-        if (!parsed.organization_id) {
+        if (!parsed.organization_id || !isValidOrganizationId(parsed.organization_id)) {
           throw new Error("Access token organization is missing.");
         }
+
+        const organizationResult = await lookupOrganization({ id: parsed.organization_id });
 
         const response = await fetch(`${API_URL}/auth/me`, {
           headers: {
@@ -73,6 +77,9 @@ export default function AuthCallbackPage() {
 
         setStoredSession({
           accessToken,
+          organizationId: parsed.organization_id,
+          organizationSlug: organizationResult.organization.slug,
+          organizationName: organizationResult.organization.name,
           email: body.user.email,
           name: body.user.name,
           avatarUrl: body.user.avatar_url,

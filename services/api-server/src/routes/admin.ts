@@ -12,7 +12,7 @@ import { z } from "zod";
 import { authenticateAccessToken, requireAdmin } from "../lib/auth.js";
 import { rebuildContestCache } from "../lib/contest-cache.js";
 import { ensureContestJobs } from "../lib/contest-jobs.js";
-import { requireOrganizationId } from "../lib/tenant.js";
+import { requireResolvedOrganizationId } from "../lib/tenant.js";
 import {
   closeWalletRequestEventSubscriber,
   registerWalletRequestStream
@@ -62,7 +62,7 @@ function getContestPublishError(contest: { status: string; starts_at: string }, 
 export async function adminRoutes(app: FastifyInstance) {
   app.get("/admin/wallet-requests/stream", async (request, reply) => {
     const accessToken = String(((request.query as { access_token?: string })?.access_token) ?? "");
-    const organizationId = requireOrganizationId(request);
+    const organizationId = await requireResolvedOrganizationId(request);
     const authResult = await authenticateAccessToken(accessToken, organizationId);
 
     if (!authResult.user) {

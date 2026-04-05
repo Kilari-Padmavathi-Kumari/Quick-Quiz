@@ -9,6 +9,7 @@ import { LoginCard } from "../../../../components/login-card";
 import { SiteShell } from "../../../../components/site-shell";
 import { useFrontendSession } from "../../../../components/session-panel";
 import { GAME_URL } from "../../../../lib/config";
+import { appendOrganizationSlugToPath } from "../../../../lib/tenant";
 
 type Option = "a" | "b" | "c" | "d";
 
@@ -48,6 +49,9 @@ export default function LiveContestPage() {
   const [prizeAmount, setPrizeAmount] = useState("0.00");
   const [youWon, setYouWon] = useState(false);
   const [socketError, setSocketError] = useState<string | null>(null);
+  const leaderboardHref = session
+    ? appendOrganizationSlugToPath(`/contests/${contestId}/leaderboard`, session.organizationSlug)
+    : `/contests/${contestId}/leaderboard`;
 
   useEffect(() => {
     if (!session?.accessToken) {
@@ -304,7 +308,7 @@ export default function LiveContestPage() {
             ))}
           </div>
           <div className="stack-row" style={{ marginTop: 16 }}>
-            <Link href={`/contests/${contestId}/leaderboard`} className="solid-button">
+            <Link href={leaderboardHref} className="solid-button">
               Open Leaderboard Page
             </Link>
             <Link href="/dashboard" className="ghost-button">

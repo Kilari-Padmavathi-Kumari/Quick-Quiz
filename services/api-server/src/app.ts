@@ -7,6 +7,7 @@ import { pool } from "@quiz-app/db";
 import { adminRoutes } from "./routes/admin.js";
 import { authRoutes } from "./routes/auth.js";
 import { contestRoutes } from "./routes/contests.js";
+import { organizationRoutes } from "./routes/organizations.js";
 import { walletRoutes } from "./routes/wallet.js";
 import { config } from "./env.js";
 import { redis } from "./lib/redis.js";
@@ -62,6 +63,7 @@ export async function buildApp() {
   });
 
   await app.register(authRoutes);
+  await app.register(organizationRoutes);
   await app.register(walletRoutes);
   await app.register(contestRoutes);
   await app.register(adminRoutes);

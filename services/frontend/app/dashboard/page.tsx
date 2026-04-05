@@ -17,6 +17,7 @@ import {
   joinContest,
   requestMoney
 } from "../../lib/api";
+import { appendOrganizationSlugToPath } from "../../lib/tenant";
 
 interface ContestItem {
   id: string;
@@ -445,13 +446,13 @@ export default function DashboardPage() {
             </label>
             <div className="stack-row">
               <Link
-                href={contestLookupId ? `/contests/${contestLookupId}/live` : "/dashboard"}
+                href={contestLookupId ? appendOrganizationSlugToPath(`/contests/${contestLookupId}/live`, session?.organizationSlug) : "/dashboard"}
                 className="ghost-button"
               >
                 Open Live Room
               </Link>
               <Link
-                href={contestLookupId ? `/contests/${contestLookupId}/leaderboard` : "/dashboard"}
+                href={contestLookupId ? appendOrganizationSlugToPath(`/contests/${contestLookupId}/leaderboard`, session?.organizationSlug) : "/dashboard"}
                 className="solid-button"
               >
                 Open Leaderboard
@@ -607,11 +608,11 @@ export default function DashboardPage() {
                 </div>
 
                 <div className="stack-row">
-                  <Link href={`/contests/${contest.contest_id}/live`} className="ghost-button">
+                  <Link href={appendOrganizationSlugToPath(`/contests/${contest.contest_id}/live`, session.organizationSlug)} className="ghost-button">
                     Open Contest
                   </Link>
                   {contest.status === "ended" ? (
-                    <Link href={`/contests/${contest.contest_id}/leaderboard`} className="solid-button">
+                    <Link href={appendOrganizationSlugToPath(`/contests/${contest.contest_id}/leaderboard`, session.organizationSlug)} className="solid-button">
                       Leaderboard
                     </Link>
                   ) : null}
@@ -722,25 +723,25 @@ export default function DashboardPage() {
                             : "Live Now"}
                       </button>
 
-                      <Link href={`/contests/${contest.id}/live`} className="ghost-button">
+                      <Link href={appendOrganizationSlugToPath(`/contests/${contest.id}/live`, session.organizationSlug)} className="ghost-button">
                         Open Live View
                       </Link>
                     </>
                   ) : null}
 
                   {contest.status === "draft" ? (
-                    <Link href={`/contests/${contest.id}/live`} className="ghost-button">
+                    <Link href={appendOrganizationSlugToPath(`/contests/${contest.id}/live`, session.organizationSlug)} className="ghost-button">
                       Preview Contest
                     </Link>
                   ) : null}
 
                   {contest.status === "ended" || contest.status === "cancelled" ? (
                     <>
-                      <Link href={`/contests/${contest.id}/live`} className="ghost-button">
+                      <Link href={appendOrganizationSlugToPath(`/contests/${contest.id}/live`, session.organizationSlug)} className="ghost-button">
                         Open Contest
                       </Link>
                       {contest.status === "ended" ? (
-                        <Link href={`/contests/${contest.id}/leaderboard`} className="solid-button">
+                        <Link href={appendOrganizationSlugToPath(`/contests/${contest.id}/leaderboard`, session.organizationSlug)} className="solid-button">
                           View Leaderboard
                         </Link>
                       ) : null}

@@ -17,15 +17,21 @@ import {
   setRefreshCookie
 } from "../lib/auth.js";
 import { redis } from "../lib/redis.js";
-import { parseOrganizationId, requireOrganizationId } from "../lib/tenant.js";
+import {
+  lookupOrganizationIdBySlug,
+  parseOrganizationId,
+  requireResolvedOrganizationId
+} from "../lib/tenant.js";
 
 const requestCodeSchema = z.object({
+  organization_slug: z.string().trim().min(2).max(48).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(),
   email: z.string().email(),
   name: z.string().min(2).max(80).optional(),
   avatar_url: z.string().url().optional()
 });
 
 const verifyCodeSchema = z.object({
+  organization_slug: z.string().trim().min(2).max(48).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(),
   email: z.string().email(),
   code: z.string().min(4).max(12)
 });
@@ -35,6 +41,7 @@ const googleSchema = z.object({
 });
 
 const passwordSchema = z.object({
+  organization_slug: z.string().trim().min(2).max(48).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(),
   email: z.string().email(),
   password: z.string().min(6),
   name: z.string().min(2).max(80).optional(),
@@ -42,6 +49,7 @@ const passwordSchema = z.object({
 });
 
 const emailLoginSchema = z.object({
+  organization_slug: z.string().trim().min(2).max(48).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(),
   email: z.string().email(),
   name: z.string().min(2).max(80).optional(),
   avatar_url: z.string().url().optional()
@@ -117,6 +125,23 @@ async function resolveUserFromOauth({
   avatarUrl?: string | null;
 }) {
   return withTransaction(async (client) => {
+    const organizationResult = await client.query<{
+      admin_email: string;
+    }>(
+      `
+        SELECT admin_email
+        FROM organizations
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [organizationId]
+    );
+
+    const organizationAdminEmail = organizationResult.rows[0]?.admin_email?.toLowerCase();
+    const shouldGrantAdmin =
+      email === organizationAdminEmail ||
+      (organizationId === config.defaultOrganizationId && email === config.adminEmail);
+
     const oauthResult = await client.query<{
       id: string;
       organization_id: string;
@@ -177,7 +202,7 @@ async function resolveUserFromOauth({
               AND organization_id = $5
             RETURNING id, organization_id, email, name, avatar_url, wallet_balance, is_admin, is_banned
           `,
-          [existingOauthUser.id, name, resolvedAvatarUrl, email === config.adminEmail, organizationId]
+          [existingOauthUser.id, name, resolvedAvatarUrl, existingOauthUser.is_admin || shouldGrantAdmin, organizationId]
         )
       ).rows[0];
     }
@@ -234,7 +259,7 @@ async function resolveUserFromOauth({
                   name,
                   email
                 }),
-                email === config.adminEmail,
+                existingUser.rows[0].is_admin || shouldGrantAdmin,
                 organizationId
               ]
             )
@@ -264,7 +289,7 @@ async function resolveUserFromOauth({
                   name,
                   email
                 }),
-                email === config.adminEmail
+                shouldGrantAdmin
               ]
             )
           ).rows[0];
@@ -424,12 +449,22 @@ export async function authRoutes(app: FastifyInstance) {
     }
 
     const state = randomBytes(24).toString("hex");
-    const query = request.query as { redirect_to?: string; organization_id?: string };
+    const query = request.query as { redirect_to?: string; organization_id?: string; organization?: string; organization_slug?: string };
     const redirectTo = resolveFrontendRedirect(String(query.redirect_to ?? ""));
-    const organizationId = parseOrganizationId(String(query.organization_id ?? ""));
+    let organizationId = parseOrganizationId(String(query.organization_id ?? ""));
 
     if (!organizationId) {
-      return reply.redirect(buildFrontendErrorUrl("Missing or invalid organization_id."));
+      const organizationSlug = String(query.organization_slug ?? query.organization ?? "").trim().toLowerCase();
+
+      if (!organizationSlug) {
+        return reply.redirect(buildFrontendErrorUrl("Missing organization slug."));
+      }
+
+      try {
+        organizationId = await lookupOrganizationIdBySlug(organizationSlug);
+      } catch (error) {
+        return reply.redirect(buildFrontendErrorUrl(error instanceof Error ? error.message : "Organization not found."));
+      }
     }
 
     await redis.setex(
@@ -505,7 +540,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.post("/auth/email-login", async (request, reply) => {
     const body = emailLoginSchema.parse(request.body);
     const email = body.email.trim().toLowerCase();
-    const organizationId = requireOrganizationId(request);
+    const organizationId = await requireResolvedOrganizationId(request);
 
     console.log("EMAIL_LOGIN_REQUEST", {
       organizationId,
@@ -539,7 +574,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.post("/auth/request-code", async (request, reply) => {
     const body = requestCodeSchema.parse(request.body);
     const email = body.email.trim().toLowerCase();
-    const organizationId = requireOrganizationId(request);
+    const organizationId = await requireResolvedOrganizationId(request);
 
     const code = String(randomInt(100000, 999999));
 
@@ -566,7 +601,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.post("/auth/password-login", async (request, reply) => {
     const body = passwordSchema.parse(request.body);
     const email = body.email.trim().toLowerCase();
-    const organizationId = requireOrganizationId(request);
+    const organizationId = await requireResolvedOrganizationId(request);
 
     const password = body.password.trim();
     const patternOk = /^quiz@\d{4}$/i.test(password);
@@ -602,7 +637,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.post("/auth/verify-code", async (request, reply) => {
     const body = verifyCodeSchema.parse(request.body);
     const email = body.email.trim().toLowerCase();
-    const organizationId = requireOrganizationId(request);
+    const organizationId = await requireResolvedOrganizationId(request);
 
     const raw = await redis.get(authCodeKey(organizationId, email));
     if (!raw) {
@@ -645,7 +680,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.post("/auth/google", async (request, reply) => {
     const body = googleSchema.parse(request.body);
-    const organizationId = requireOrganizationId(request);
+    const organizationId = await requireResolvedOrganizationId(request);
 
     try {
       const profile = await verifyGoogleIdToken(body.id_token);

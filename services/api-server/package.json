@@ -1,0 +1,31 @@
+{
+  "name": "@quiz-app/api-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/server.js",
+  "types": "dist/server.d.ts",
+  "scripts": {
+    "build": "rimraf dist && tsc -p tsconfig.json",
+    "dev": "dotenv -e ../../.env -- tsx src/server.ts",
+    "dev:watch": "dotenv -e ../../.env -- tsx watch src/server.ts",
+    "grant-default-balance": "dotenv -e ../../.env -- tsx src/grant-default-balance.ts",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "seed": "dotenv -e ../../.env -- tsx src/seed.ts"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/cors": "^11.1.0",
+    "@quiz-app/db": "workspace:*",
+    "@quiz-app/queues": "workspace:*",
+    "@quiz-app/redis": "workspace:*",
+    "@quiz-app/types": "workspace:*",
+    "fastify": "^5.6.1",
+    "jose": "^6.1.0",
+    "pg": "^8.16.3",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.5"
+  }
+}

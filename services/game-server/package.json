@@ -1,0 +1,22 @@
+{
+  "name": "@quiz-app/game-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/server.js",
+  "types": "dist/server.d.ts",
+  "scripts": {
+    "build": "rimraf dist && tsc -p tsconfig.json",
+    "dev": "dotenv -e ../../.env -- tsx watch src/server.ts",
+    "lint": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@quiz-app/db": "workspace:*",
+    "@quiz-app/redis": "workspace:*",
+    "@quiz-app/types": "workspace:*",
+    "@socket.io/redis-adapter": "^8.3.0",
+    "jose": "^6.1.0",
+    "socket.io": "^4.8.1",
+    "zod": "^4.1.11"
+  }
+}

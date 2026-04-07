@@ -364,8 +364,8 @@ export default function DashboardPage() {
 
   if (session.role === "pending" || session.userStatus === "pending") {
     return (
-      <SiteShell title="Player Dashboard" subtitle="Organization access is pending approval." density="compact">
-        <div className="notice">Your organization request is still pending. Check the waiting page after approval.</div>
+      <SiteShell title="" subtitle="" density="compact">
+        <section />
       </SiteShell>
     );
   }

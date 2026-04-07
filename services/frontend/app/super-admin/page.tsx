@@ -11,14 +11,27 @@ import {
   deleteOrganizationForSuperAdmin,
   getOrganizationsForSuperAdmin,
   getPendingUsers,
-  getSystemActivity,
   getSystemUsers,
   toggleOrganizationForSuperAdmin,
-  updateOrganizationForSuperAdmin
 } from "../../lib/api";
+
+const HIDDEN_ORGANIZATION_SLUGS = new Set([
+  "tenant-b-arena",
+  "fission-labs",
+  "quick-quiz-arena"
+]);
+
+const HIDDEN_USER_EMAILS = new Set([
+  "tenant-wallet-b-mnoiwa3v@example.com",
+  "tenant-wallet-a-mnoiwa3v@example.com",
+  "tenant-wallet-a-mnmzmq96@example.com",
+  "player.two@gmail.com",
+  "player.one@gmail.com"
+]);
 
 function SuperAdminContent() {
   const { session, isReady } = useFrontendSession();
+  const [expandedStats, setExpandedStats] = useState<Record<string, boolean>>({});
   const [pendingUsers, setPendingUsers] = useState<Array<{
     membership_id: string;
     user_id: string;
@@ -36,12 +49,6 @@ function SuperAdminContent() {
     organization_id: string;
     created_at: string;
   }>>([]);
-  const [activity, setActivity] = useState<Array<{
-    id: string;
-    action: string;
-    target_type: string;
-    created_at: string;
-  }>>([]);
   const [organizations, setOrganizations] = useState<Array<{
     id: string;
     name: string;
@@ -55,22 +62,25 @@ function SuperAdminContent() {
   const [orgAdminEmail, setOrgAdminEmail] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const activeOrganizations = organizations.filter((organization) => organization.is_active).length;
-  const inactiveOrganizations = organizations.length - activeOrganizations;
-  const approvedUsers = users.filter((user) => user.status === "active").length;
-  const selectedOrganization = organizations.find((organization) => organization.slug === orgSlug) ?? null;
+  const visibleOrganizations = organizations.filter(
+    (organization) => !HIDDEN_ORGANIZATION_SLUGS.has(organization.slug)
+  );
+  const visibleUsers = users.filter((user) => !HIDDEN_USER_EMAILS.has(user.email.toLowerCase()));
+  const activeOrganizations = visibleOrganizations.filter((organization) => organization.is_active).length;
+  const inactiveOrganizations = visibleOrganizations.length - activeOrganizations;
+  const approvedUsers = visibleUsers.filter((user) => user.status === "active").length;
+  const selectedOrganization = visibleOrganizations.find((organization) => organization.slug === orgSlug) ?? null;
+  const effectiveAdminEmail = orgAdminEmail || session?.email || "";
 
   async function loadData(accessToken: string) {
-    const [pendingResult, usersResult, activityResult, organizationsResult] = await Promise.all([
+    const [pendingResult, usersResult, organizationsResult] = await Promise.all([
       getPendingUsers(accessToken),
       getSystemUsers(accessToken),
-      getSystemActivity(accessToken),
       getOrganizationsForSuperAdmin(accessToken)
     ]);
 
     setPendingUsers(pendingResult.pending_users);
     setUsers(usersResult.users);
-    setActivity(activityResult.activity);
     setOrganizations(organizationsResult.organizations);
   }
 
@@ -110,24 +120,79 @@ function SuperAdminContent() {
 
       <section className="super-admin-overview">
         <article className="super-admin-stat">
-          <span className="eyebrow">Organizations</span>
-          <strong>{organizations.length}</strong>
-          <p>{activeOrganizations} active and {inactiveOrganizations} inactive tenants.</p>
+          <div className="stat-card__top">
+            <span className="eyebrow">Organizations</span>
+            <button
+              type="button"
+              className="stat-card__info-button"
+              aria-expanded={expandedStats.organizations === true}
+              aria-label="Show organization summary"
+              onClick={() =>
+                setExpandedStats((current) => ({
+                  ...current,
+                  organizations: !current.organizations
+                }))
+              }
+            >
+              i
+            </button>
+          </div>
+          {expandedStats.organizations ? (
+            <>
+              <strong>{visibleOrganizations.length}</strong>
+              <p>{activeOrganizations} active and {inactiveOrganizations} inactive tenants.</p>
+            </>
+          ) : null}
         </article>
         <article className="super-admin-stat">
-          <span className="eyebrow">Pending approvals</span>
-          <strong>{pendingUsers.length}</strong>
-          <p>Users waiting for role assignment and tenant approval.</p>
+          <div className="stat-card__top">
+            <span className="eyebrow">Pending approvals</span>
+            <button
+              type="button"
+              className="stat-card__info-button"
+              aria-expanded={expandedStats.pending === true}
+              aria-label="Show pending approval summary"
+              onClick={() =>
+                setExpandedStats((current) => ({
+                  ...current,
+                  pending: !current.pending
+                }))
+              }
+            >
+              i
+            </button>
+          </div>
+          {expandedStats.pending ? (
+            <>
+              <strong>{pendingUsers.length}</strong>
+              <p>Users waiting for role assignment and tenant approval.</p>
+            </>
+          ) : null}
         </article>
         <article className="super-admin-stat">
-          <span className="eyebrow">Active users</span>
-          <strong>{approvedUsers}</strong>
-          <p>Approved users across all organizations in the platform.</p>
-        </article>
-        <article className="super-admin-stat">
-          <span className="eyebrow">Audit activity</span>
-          <strong>{activity.length}</strong>
-          <p>Recent platform events captured for governance and monitoring.</p>
+          <div className="stat-card__top">
+            <span className="eyebrow">Active users</span>
+            <button
+              type="button"
+              className="stat-card__info-button"
+              aria-expanded={expandedStats.users === true}
+              aria-label="Show active user summary"
+              onClick={() =>
+                setExpandedStats((current) => ({
+                  ...current,
+                  users: !current.users
+                }))
+              }
+            >
+              i
+            </button>
+          </div>
+          {expandedStats.users ? (
+            <>
+              <strong>{approvedUsers}</strong>
+              <p>Approved users across all organizations in the platform.</p>
+            </>
+          ) : null}
         </article>
       </section>
 
@@ -144,16 +209,12 @@ function SuperAdminContent() {
           </div>
 
           <label className="field">
-            <span>Name</span>
+            <span>Organization Name</span>
             <input value={orgName} onChange={(event) => setOrgName(event.target.value)} />
           </label>
           <label className="field">
-            <span>Slug</span>
+            <span>Organization Slug</span>
             <input value={orgSlug} onChange={(event) => setOrgSlug(event.target.value)} />
-          </label>
-          <label className="field">
-            <span>Admin Email</span>
-            <input value={orgAdminEmail} onChange={(event) => setOrgAdminEmail(event.target.value)} />
           </label>
 
           <div className="stack-row">
@@ -169,7 +230,7 @@ function SuperAdminContent() {
                     await createSaaSOrganization(session.accessToken, {
                       name: orgName,
                       slug: orgSlug,
-                      admin_email: orgAdminEmail
+                      admin_email: effectiveAdminEmail
                     });
                     setMessage("Organization created.");
                     await loadData(session.accessToken);
@@ -181,237 +242,206 @@ function SuperAdminContent() {
             >
               Create Organization
             </button>
-            <button
-              type="button"
-              className="ghost-button"
-              disabled={!orgName || !orgSlug || !orgAdminEmail}
-              onClick={() => {
-                const target = organizations.find((organization) => organization.slug === orgSlug);
-                if (!target) {
-                  setError("Load an existing organization first.");
-                  return;
-                }
-
-                startTransition(async () => {
-                  try {
-                    await updateOrganizationForSuperAdmin(session.accessToken, target.id, {
-                      name: orgName,
-                      slug: orgSlug,
-                      admin_email: orgAdminEmail
-                    });
-                    setMessage("Organization updated.");
-                    await loadData(session.accessToken);
-                  } catch (updateError) {
-                    setError(updateError instanceof Error ? updateError.message : "Update failed");
-                  }
-                });
-              }}
-            >
-              Save Changes
-            </button>
-          </div>
-        </div>
-
-        <div className="card dashboard-card super-admin-panel">
-          <div className="super-admin-panel__header">
-            <div>
-              <div className="eyebrow">Approval queue</div>
-              <h2 className="super-admin-panel__title">Pending membership requests</h2>
-            </div>
-            <span className="chip chip--soft">{pendingUsers.length} waiting</span>
-          </div>
-
-          <div className="list">
-            {pendingUsers.map((pending) => (
-              <div key={pending.membership_id} className="notice super-admin-list-card">
-                <strong>{pending.name}</strong>
-                <div className="muted">{pending.email}</div>
-                <div className="muted">{pending.organization_name} | {pending.employee_id}</div>
-                <div className="stack-row" style={{ marginTop: 10 }}>
-                  <button
-                    type="button"
-                    className="solid-button"
-                    onClick={() => {
-                      startTransition(async () => {
-                        try {
-                          await approveUser(session.accessToken, {
-                            membership_id: pending.membership_id,
-                            role: "player",
-                            action: "approve"
-                          });
-                          setMessage(`Approved ${pending.email}`);
-                          await loadData(session.accessToken);
-                        } catch (approveError) {
-                          setError(approveError instanceof Error ? approveError.message : "Approval failed");
-                        }
-                      });
-                    }}
-                  >
-                    Approve Player
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    onClick={() => {
-                      startTransition(async () => {
-                        try {
-                          await approveUser(session.accessToken, {
-                            membership_id: pending.membership_id,
-                            role: "organization_admin",
-                            action: "approve"
-                          });
-                          setMessage(`Approved ${pending.email} as admin`);
-                          await loadData(session.accessToken);
-                        } catch (approveError) {
-                          setError(approveError instanceof Error ? approveError.message : "Approval failed");
-                        }
-                      });
-                    }}
-                  >
-                    Approve Admin
-                  </button>
-                  <button
-                    type="button"
-                    className="danger-button"
-                    onClick={() => {
-                      startTransition(async () => {
-                        try {
-                          await approveUser(session.accessToken, {
-                            membership_id: pending.membership_id,
-                            role: "player",
-                            action: "reject"
-                          });
-                          setMessage(`Rejected ${pending.email}`);
-                          await loadData(session.accessToken);
-                        } catch (approveError) {
-                          setError(approveError instanceof Error ? approveError.message : "Rejection failed");
-                        }
-                      });
-                    }}
-                  >
-                    Reject
-                  </button>
-                </div>
-              </div>
-            ))}
-            {pendingUsers.length === 0 ? <div className="notice">No pending users.</div> : null}
           </div>
         </div>
       </section>
 
       <section className="super-admin-bottom-grid">
-        <div className="card dashboard-card super-admin-panel">
-          <div className="super-admin-panel__header">
-            <div>
-              <div className="eyebrow">Tenant directory</div>
-              <h2 className="super-admin-panel__title">Organizations</h2>
-            </div>
-            <span className="chip chip--soft">{organizations.length} total</span>
-          </div>
-
-          <div className="list">
-            {organizations.map((organization) => (
-              <div key={organization.id} className="notice super-admin-list-card">
-                <strong>{organization.name}</strong>
-                <div className="muted">{organization.slug}</div>
-                <div className="muted">{organization.admin_email}</div>
-                <div className="muted">{organization.is_active ? "active" : "inactive"}</div>
-                <div className="stack-row" style={{ marginTop: 10 }}>
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    onClick={() => {
-                      setOrgName(organization.name);
-                      setOrgSlug(organization.slug);
-                      setOrgAdminEmail(organization.admin_email);
-                    }}
-                  >
-                    Load Into Form
-                  </button>
-                  <button
-                    type="button"
-                    className="solid-button"
-                    onClick={() => {
-                      startTransition(async () => {
-                        try {
-                          await toggleOrganizationForSuperAdmin(
-                            session.accessToken,
-                            organization.id,
-                            !organization.is_active
-                          );
-                          setMessage(`${organization.name} updated.`);
-                          await loadData(session.accessToken);
-                        } catch (toggleError) {
-                          setError(toggleError instanceof Error ? toggleError.message : "Toggle failed");
-                        }
-                      });
-                    }}
-                  >
-                    {organization.is_active ? "Deactivate" : "Activate"}
-                  </button>
-                  <button
-                    type="button"
-                    className="danger-button"
-                    onClick={() => {
-                      startTransition(async () => {
-                        try {
-                          await deleteOrganizationForSuperAdmin(session.accessToken, organization.id);
-                          setMessage(`${organization.name} deleted.`);
-                          await loadData(session.accessToken);
-                        } catch (deleteError) {
-                          setError(deleteError instanceof Error ? deleteError.message : "Delete failed");
-                        }
-                      });
-                    }}
-                  >
-                    Delete
-                  </button>
+        <div className="super-admin-side-stack">
+          <details className="card dashboard-card super-admin-panel dashboard-dropdown">
+            <summary className="dashboard-dropdown__summary">
+              <div className="super-admin-panel__header" style={{ marginBottom: 0, width: "100%" }}>
+                <div>
+                  <div className="eyebrow">Tenant directory</div>
+                  <h2 className="super-admin-panel__title">Organizations</h2>
+                </div>
+                <div className="stack-row" style={{ alignItems: "center" }}>
+                  <span className="chip chip--soft">{visibleOrganizations.length} total</span>
+                  <span className="dashboard-dropdown__icon" aria-hidden="true">^</span>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
+            </summary>
 
-        <div className="super-admin-side-stack">
-          <div className="card dashboard-card super-admin-panel">
-            <div className="super-admin-panel__header">
-              <div>
-                <div className="eyebrow">Platform users</div>
-                <h2 className="super-admin-panel__title">All users</h2>
-              </div>
-              <span className="chip chip--soft">{users.length} total</span>
+            <div className="list dashboard-dropdown__content">
+              {visibleOrganizations.map((organization) => (
+                <div key={organization.id} className="notice super-admin-list-card">
+                  <strong>{organization.name}</strong>
+                  <div className="muted">{organization.slug}</div>
+                  <div className="muted">{organization.admin_email}</div>
+                  <div className="muted">{organization.is_active ? "active" : "inactive"}</div>
+                  <div className="stack-row" style={{ marginTop: 10 }}>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => {
+                        setOrgName(organization.name);
+                        setOrgSlug(organization.slug);
+                        setOrgAdminEmail(organization.admin_email);
+                      }}
+                    >
+                      Load Into Form
+                    </button>
+                    <button
+                      type="button"
+                      className="solid-button"
+                      onClick={() => {
+                        startTransition(async () => {
+                          try {
+                            await toggleOrganizationForSuperAdmin(
+                              session.accessToken,
+                              organization.id,
+                              !organization.is_active
+                            );
+                            setMessage(`${organization.name} updated.`);
+                            await loadData(session.accessToken);
+                          } catch (toggleError) {
+                            setError(toggleError instanceof Error ? toggleError.message : "Toggle failed");
+                          }
+                        });
+                      }}
+                    >
+                      {organization.is_active ? "Deactivate" : "Activate"}
+                    </button>
+                    <button
+                      type="button"
+                      className="danger-button"
+                      onClick={() => {
+                        startTransition(async () => {
+                          try {
+                            await deleteOrganizationForSuperAdmin(session.accessToken, organization.id);
+                            setMessage(`${organization.name} deleted.`);
+                            await loadData(session.accessToken);
+                          } catch (deleteError) {
+                            setError(deleteError instanceof Error ? deleteError.message : "Delete failed");
+                          }
+                        });
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {visibleOrganizations.length === 0 ? <div className="notice">No organizations to display.</div> : null}
             </div>
+          </details>
 
-            <div className="list">
-              {users.slice(0, 12).map((user) => (
+          <details className="card dashboard-card super-admin-panel dashboard-dropdown">
+            <summary className="dashboard-dropdown__summary">
+              <div className="super-admin-panel__header" style={{ marginBottom: 0, width: "100%" }}>
+                <div>
+                  <div className="eyebrow">Approval queue</div>
+                  <h2 className="super-admin-panel__title">Pending membership requests</h2>
+                </div>
+                <div className="stack-row" style={{ alignItems: "center" }}>
+                  <span className="chip chip--soft">{pendingUsers.length} waiting</span>
+                  <span className="dashboard-dropdown__icon" aria-hidden="true">^</span>
+                </div>
+              </div>
+            </summary>
+
+            <div className="list dashboard-dropdown__content">
+              {pendingUsers.map((pending) => (
+                <div key={pending.membership_id} className="notice super-admin-list-card">
+                  <strong>{pending.name}</strong>
+                  <div className="muted">{pending.email}</div>
+                  <div className="muted">{pending.organization_name} | {pending.employee_id}</div>
+                  <div className="stack-row" style={{ marginTop: 10 }}>
+                    <button
+                      type="button"
+                      className="solid-button"
+                      onClick={() => {
+                        startTransition(async () => {
+                          try {
+                            await approveUser(session.accessToken, {
+                              membership_id: pending.membership_id,
+                              role: "player",
+                              action: "approve"
+                            });
+                            setMessage(`Approved ${pending.email}`);
+                            await loadData(session.accessToken);
+                          } catch (approveError) {
+                            setError(approveError instanceof Error ? approveError.message : "Approval failed");
+                          }
+                        });
+                      }}
+                    >
+                      Approve Player
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => {
+                        startTransition(async () => {
+                          try {
+                            await approveUser(session.accessToken, {
+                              membership_id: pending.membership_id,
+                              role: "organization_admin",
+                              action: "approve"
+                            });
+                            setMessage(`Approved ${pending.email} as admin`);
+                            await loadData(session.accessToken);
+                          } catch (approveError) {
+                            setError(approveError instanceof Error ? approveError.message : "Approval failed");
+                          }
+                        });
+                      }}
+                    >
+                      Approve Admin
+                    </button>
+                    <button
+                      type="button"
+                      className="danger-button"
+                      onClick={() => {
+                        startTransition(async () => {
+                          try {
+                            await approveUser(session.accessToken, {
+                              membership_id: pending.membership_id,
+                              role: "player",
+                              action: "reject"
+                            });
+                            setMessage(`Rejected ${pending.email}`);
+                            await loadData(session.accessToken);
+                          } catch (approveError) {
+                            setError(approveError instanceof Error ? approveError.message : "Rejection failed");
+                          }
+                        });
+                      }}
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {pendingUsers.length === 0 ? <div className="notice">No pending users.</div> : null}
+            </div>
+          </details>
+
+          <details className="card dashboard-card super-admin-panel dashboard-dropdown">
+            <summary className="dashboard-dropdown__summary">
+              <div className="super-admin-panel__header" style={{ marginBottom: 0, width: "100%" }}>
+                <div>
+                  <div className="eyebrow">Platform users</div>
+                  <h2 className="super-admin-panel__title">All users</h2>
+                </div>
+                <div className="stack-row" style={{ alignItems: "center" }}>
+                  <span className="chip chip--soft">{visibleUsers.length} total</span>
+                  <span className="dashboard-dropdown__icon" aria-hidden="true">^</span>
+                </div>
+              </div>
+            </summary>
+
+            <div className="list dashboard-dropdown__content">
+              {visibleUsers.slice(0, 12).map((user) => (
                 <div key={user.id} className="notice super-admin-list-card">
                   <strong>{user.name}</strong>
                   <div className="muted">{user.email}</div>
                   <div className="muted">{user.status} | {new Date(user.created_at).toLocaleString()}</div>
                 </div>
               ))}
+              {visibleUsers.length === 0 ? <div className="notice">No users to display.</div> : null}
             </div>
-          </div>
-
-          <div className="card dashboard-card super-admin-panel">
-            <div className="super-admin-panel__header">
-              <div>
-                <div className="eyebrow">Audit stream</div>
-                <h2 className="super-admin-panel__title">System activity</h2>
-              </div>
-              <span className="chip chip--soft">Recent events</span>
-            </div>
-
-            <div className="list">
-              {activity.slice(0, 12).map((item) => (
-                <div key={item.id} className="notice super-admin-list-card">
-                  <strong>{item.action}</strong>
-                  <div className="muted">{item.target_type}</div>
-                  <div className="muted">{new Date(item.created_at).toLocaleString()}</div>
-                </div>
-              ))}
-            </div>
-          </div>
+          </details>
         </div>
       </section>
     </SiteShell>

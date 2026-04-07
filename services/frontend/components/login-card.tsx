@@ -35,20 +35,16 @@ export function LoginCard({ targetHref = "/dashboard" }: LoginCardProps) {
       </div>
 
       <h2 className="card-title">Continue with Google</h2>
-      <p className="auth-card__copy">
-        Use your work account to continue. Super admins go straight to the global control panel, and everyone
-        else is guided into organization onboarding.
-      </p>
+      <p className="auth-card__copy">Use your work account to continue.</p>
 
       <div className="auth-card__info-strip">
         <div>
           <strong>Secure by default</strong>
-          <span>Google identity, tenant-aware routing, approval-based access.</span>
+          <span>Google identity and tenant-aware access.</span>
         </div>
       </div>
 
       <div className="auth-google-block">
-        <div className="auth-google-block__label">Single sign-on</div>
         <button
           className="ghost-button auth-card__ghost auth-card__google-cta"
           type="button"

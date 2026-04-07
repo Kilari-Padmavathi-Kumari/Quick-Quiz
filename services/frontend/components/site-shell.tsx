@@ -63,6 +63,8 @@ export function SiteShell({
   const router = useRouter();
   const { session } = useFrontendSession();
   const roleMeta = getRoleMeta(session);
+  const isSuperAdmin = session?.role === "super_admin";
+  const isPendingUser = session?.role === "pending" || session?.userStatus === "pending";
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -93,20 +95,24 @@ export function SiteShell({
               <span className="brand-text">Quiz Master</span>
             </Link>
 
-            <div className="side-nav__intro">
-              <div className="side-nav__eyebrow">{roleMeta.eyebrow}</div>
-              <p>{roleMeta.description}</p>
-            </div>
+            {isSuperAdmin ? null : (
+              <div className="side-nav__intro">
+                <div className="side-nav__eyebrow">{roleMeta.eyebrow}</div>
+                <p>{roleMeta.description}</p>
+              </div>
+            )}
 
-            <div className="workspace-badge">
-              <span className="workspace-badge__label">Workspace</span>
-              <strong>{session?.organizationName ?? session?.organizationSlug ?? "Quiz Master Cloud"}</strong>
-              <span>{roleMeta.label}</span>
-            </div>
+            {isSuperAdmin ? null : (
+              <div className="workspace-badge">
+                <span className="workspace-badge__label">Workspace</span>
+                <strong>{session?.organizationName ?? session?.organizationSlug ?? "Quiz Master Cloud"}</strong>
+                <span>{roleMeta.label}</span>
+              </div>
+            )}
           </div>
 
           <div className="nav-links">
-            <div className="nav-links__section">Navigation</div>
+            {isSuperAdmin ? null : <div className="nav-links__section">Navigation</div>}
             {session?.role === "super_admin" ? (
               <Link
                 href="/super-admin"
@@ -123,7 +129,7 @@ export function SiteShell({
                 Admin Console
               </Link>
             ) : null}
-            {session && session.role !== "super_admin" ? (
+            {session && session.role !== "super_admin" && !isPendingUser ? (
               <Link
                 href="/dashboard"
                 className={clsx("nav-item", pathname === "/dashboard" && "nav-item--active")}
@@ -131,7 +137,7 @@ export function SiteShell({
                 {session.isAdmin ? "Player View" : "Player Dashboard"}
               </Link>
             ) : null}
-            {session && !session.organizationId ? null : session?.role !== "super_admin" && session?.userStatus === "pending" ? (
+            {session && !session.organizationId ? null : session?.role !== "super_admin" && session?.userStatus === "pending" && !isPendingUser ? (
               <Link
                 href="/waiting-approval"
                 className={clsx("nav-item", pathname === "/waiting-approval" && "nav-item--active")}

@@ -471,12 +471,12 @@ button:disabled,
   overflow: hidden;
   border-radius: 28px;
   background:
-    radial-gradient(circle at top center, rgba(214, 174, 87, 0.07), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(250, 250, 250, 0.97));
+    radial-gradient(circle at top center, rgba(214, 174, 87, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(246, 243, 236, 0.97));
   color: var(--ink);
   border: 1px solid rgba(21, 26, 35, 0.08);
   box-shadow: 0 24px 56px rgba(21, 26, 35, 0.12);
-  width: min(710px, 100%);
+  width: min(560px, 100%);
   margin-inline: auto;
 }
 
@@ -509,20 +509,14 @@ button:disabled,
 }
 
 .auth-card__copy {
-  color: #6b7280;
+  color: #4f5b6a;
   line-height: 1.65;
-  max-width: 40ch;
+  max-width: 34ch;
+  font-size: 0.94rem;
 }
 
 .auth-google-block {
-  margin-top: 18px;
-}
-
-.auth-google-block__label {
-  margin-bottom: 10px;
-  color: #5b6472;
-  font-size: 0.9rem;
-  font-weight: 700;
+  margin-top: 14px;
 }
 
 .auth-google-button {
@@ -626,7 +620,7 @@ button:disabled,
 .card-title {
   margin: 12px 0 8px;
   font-family: var(--font-display), sans-serif;
-  font-size: clamp(1.45rem, 2.4vw, 2.1rem);
+  font-size: clamp(1.2rem, 2vw, 1.7rem);
 }
 
 .auth-form {
@@ -2780,7 +2774,7 @@ button:disabled,
 
 .saas-landing {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(360px, 460px);
+  grid-template-columns: minmax(0, 1.05fr) minmax(360px, 520px);
   gap: 2rem;
   align-items: stretch;
 }
@@ -2791,7 +2785,7 @@ button:disabled,
 }
 
 .saas-landing__content {
-  padding: 2rem 0.5rem 1rem 0;
+  padding: 2.4rem 0.75rem 1rem 0;
 }
 
 .saas-landing__eyebrow {
@@ -2799,65 +2793,72 @@ button:disabled,
   font-size: 0.8rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: rgba(153, 181, 255, 0.82);
+  color: #4f76a1;
 }
 
 .saas-landing__title {
   margin: 0.85rem 0 1rem;
-  max-width: 12ch;
-  font-size: clamp(2.8rem, 5vw, 4.8rem);
-  line-height: 0.96;
+  max-width: 11ch;
+  font-size: clamp(2.1rem, 4vw, 3.4rem);
+  line-height: 1;
   letter-spacing: -0.05em;
-  color: #f8fbff;
+  color: #182230;
+  text-shadow: 0 6px 18px rgba(255, 255, 255, 0.22);
 }
 
 .saas-landing__copy {
-  max-width: 58ch;
+  max-width: 54ch;
   margin: 0;
-  font-size: 1.05rem;
-  line-height: 1.75;
-  color: rgba(228, 236, 255, 0.76);
+  font-size: 0.95rem;
+  line-height: 1.65;
+  color: #4f5b6a;
 }
 
-.saas-landing__signals {
+.saas-landing__quickfacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  margin-top: 1.6rem;
+}
+
+.saas-quickfact {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem;
-  margin-top: 1.8rem;
+  gap: 0.25rem;
+  min-width: 140px;
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(244, 239, 231, 0.92));
+  border: 1px solid rgba(21, 26, 35, 0.08);
+  box-shadow: 0 14px 28px rgba(21, 26, 35, 0.08);
 }
 
-.saas-signal-card {
-  padding: 1rem 1rem 1.1rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
-  background: linear-gradient(180deg, rgba(17, 28, 48, 0.82), rgba(12, 20, 36, 0.68));
+.saas-quickfact span {
+  font-size: 0.66rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #6a7686;
 }
 
-.saas-signal-card strong {
-  display: block;
-  margin-top: 0.55rem;
-  font-size: 1.15rem;
-  color: #f8fbff;
-}
-
-.saas-signal-card p {
-  margin: 0.55rem 0 0;
-  color: rgba(229, 235, 255, 0.68);
-  font-size: 0.94rem;
-  line-height: 1.6;
+.saas-quickfact strong {
+  font-size: 0.92rem;
+  color: #182230;
 }
 
 .saas-feature-list {
   display: grid;
   gap: 0.85rem;
   margin-top: 1.8rem;
+  max-width: 56ch;
 }
 
 .saas-feature-list__item {
   display: flex;
   gap: 0.75rem;
   align-items: flex-start;
-  color: rgba(239, 244, 255, 0.88);
+  color: #334155;
+  font-weight: 600;
+  font-size: 0.92rem;
 }
 
 .saas-feature-list__dot {
@@ -2873,27 +2874,27 @@ button:disabled,
 .auth-card__info-strip {
   margin: 1rem 0 1.15rem;
   padding: 0.9rem 1rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(21, 26, 35, 0.08);
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.05);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(244, 239, 231, 0.92));
 }
 
 .auth-card__info-strip strong {
   display: block;
   margin-bottom: 0.25rem;
-  color: #f7fbff;
+  color: #243243;
 }
 
 .auth-card__info-strip span {
-  color: rgba(226, 234, 255, 0.72);
+  color: #5a6777;
   font-size: 0.92rem;
   line-height: 1.55;
 }
 
 .chip--soft {
-  background: rgba(147, 197, 253, 0.12);
-  color: #dbeaff;
-  border-color: rgba(147, 197, 253, 0.18);
+  background: rgba(15, 76, 129, 0.08);
+  color: #2b5b8a;
+  border: 1px solid rgba(15, 76, 129, 0.12);
 }
 
 .onboarding-grid,
@@ -2917,6 +2918,29 @@ button:disabled,
   border-radius: 28px;
 }
 
+.onboarding-intro,
+.onboarding-form-card,
+.approval-status-card,
+.approval-help-card {
+  background:
+    radial-gradient(circle at top right, rgba(31, 122, 196, 0.08), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(247, 243, 236, 0.95));
+  border: 1px solid rgba(21, 26, 35, 0.08);
+  box-shadow:
+    0 22px 40px rgba(21, 26, 35, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
+.super-admin-panel {
+  background:
+    radial-gradient(circle at top right, rgba(31, 122, 196, 0.1), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(247, 243, 236, 0.95));
+  border: 1px solid rgba(21, 26, 35, 0.08);
+  box-shadow:
+    0 22px 40px rgba(21, 26, 35, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75);
+}
+
 .onboarding-intro__title,
 .approval-status-card__title,
 .super-admin-panel__title,
@@ -2933,6 +2957,85 @@ button:disabled,
   margin: 0;
   color: rgba(225, 234, 255, 0.72);
   line-height: 1.75;
+}
+
+.onboarding-intro .chip--soft,
+.onboarding-form-card .eyebrow,
+.approval-status-card .eyebrow,
+.approval-help-card .eyebrow {
+  background: rgba(15, 76, 129, 0.08);
+  color: var(--accent-strong);
+  border: 1px solid rgba(15, 76, 129, 0.08);
+}
+
+.onboarding-intro__title,
+.approval-status-card__title,
+.onboarding-form-card__title,
+.approval-help-card strong {
+  color: #16202d;
+}
+
+.onboarding-intro__copy,
+.approval-status-card__copy,
+.onboarding-form-card__copy,
+.approval-help-card__list p {
+  color: #5b6676;
+}
+
+.super-admin-panel .eyebrow {
+  background: rgba(15, 76, 129, 0.08);
+  color: var(--accent-strong);
+}
+
+.super-admin-panel__title {
+  color: #16202d;
+}
+
+.super-admin-panel .muted,
+.super-admin-panel .notice,
+.super-admin-panel .field span,
+.super-admin-panel .field label {
+  color: #556071;
+}
+
+.super-admin-panel .field input,
+.super-admin-panel .field textarea,
+.super-admin-panel .field select {
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(21, 26, 35, 0.12);
+  color: #16202d;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.super-admin-panel .field input::placeholder,
+.super-admin-panel .field textarea::placeholder {
+  color: #7b8796;
+}
+
+.super-admin-panel .field input:focus,
+.super-admin-panel .field textarea:focus,
+.super-admin-panel .field select:focus {
+  outline: none;
+  border-color: rgba(31, 122, 196, 0.35);
+  box-shadow: 0 0 0 4px rgba(31, 122, 196, 0.08);
+}
+
+.super-admin-panel .chip--soft {
+  background: rgba(31, 122, 196, 0.08);
+  color: #3b5a82;
+  border: 1px solid rgba(31, 122, 196, 0.12);
+}
+
+.super-admin-panel .notice {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(244, 240, 232, 0.92));
+  border-color: rgba(21, 26, 35, 0.08);
+}
+
+.super-admin-panel .dashboard-dropdown__icon {
+  color: #244c74;
+  border-color: rgba(21, 26, 35, 0.12);
+  background: rgba(255, 255, 255, 0.9);
 }
 
 .onboarding-steps,
@@ -2958,6 +3061,13 @@ button:disabled,
   background: rgba(255, 255, 255, 0.04);
 }
 
+.onboarding-step,
+.approval-step {
+  border: 1px solid rgba(21, 26, 35, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(244, 240, 232, 0.92));
+}
+
 .onboarding-step span,
 .approval-step span {
   display: inline-flex;
@@ -2971,10 +3081,21 @@ button:disabled,
   font-weight: 700;
 }
 
+.onboarding-step span,
+.approval-step span {
+  background: rgba(31, 122, 196, 0.12);
+  color: #244c74;
+}
+
 .onboarding-step strong,
 .approval-step strong {
   display: block;
   color: #f8fbff;
+}
+
+.onboarding-step strong,
+.approval-step strong {
+  color: #16202d;
 }
 
 .onboarding-step p,
@@ -2984,6 +3105,11 @@ button:disabled,
   margin: 0.35rem 0 0;
   color: rgba(225, 234, 255, 0.7);
   line-height: 1.6;
+}
+
+.onboarding-step p,
+.approval-step p {
+  color: #5b6676;
 }
 
 .approval-layout {
@@ -3022,7 +3148,7 @@ button:disabled,
 .super-admin-stat strong {
   display: block;
   margin-top: 0.45rem;
-  font-size: 2rem;
+  font-size: 1.5rem;
   color: #f8fbff;
 }
 
@@ -3032,21 +3158,83 @@ button:disabled,
 }
 
 .super-admin-bottom-grid {
-  grid-template-columns: minmax(0, 1.05fr) minmax(320px, 0.95fr);
+  grid-template-columns: minmax(0, 0.95fr) minmax(280px, 0.78fr);
   align-items: start;
-  margin-top: 1.4rem;
+  margin-top: 1rem;
 }
 
 .super-admin-panel__header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1rem;
+  gap: 0.75rem;
+  margin-bottom: 0.7rem;
+}
+
+.super-admin-overview .eyebrow,
+.super-admin-panel .eyebrow {
+  font-size: 0.66rem;
+  letter-spacing: 0.1em;
+  padding: 5px 10px;
+}
+
+.super-admin-panel__title {
+  font-size: 1.2rem;
+  line-height: 1.1;
+}
+
+.super-admin-panel .muted,
+.super-admin-panel .notice,
+.super-admin-panel .field span,
+.super-admin-panel .field label,
+.super-admin-stat p {
+  font-size: 0.88rem;
 }
 
 .super-admin-list-card {
-  border-radius: 20px;
+  border-radius: 16px;
+  padding: 10px 12px;
+}
+
+.super-admin-side-stack {
+  gap: 0.75rem;
+}
+
+.super-admin-bottom-grid .super-admin-panel {
+  border-radius: 22px;
+}
+
+.super-admin-bottom-grid .dashboard-dropdown__summary {
+  padding: 12px 14px;
+  gap: 10px;
+}
+
+.super-admin-bottom-grid .dashboard-dropdown__content {
+  padding: 0 14px 14px;
+}
+
+.super-admin-bottom-grid .super-admin-panel__title {
+  font-size: 1.02rem;
+}
+
+.super-admin-bottom-grid .super-admin-panel .eyebrow {
+  font-size: 0.62rem;
+  padding: 4px 8px;
+}
+
+.super-admin-bottom-grid .chip--soft {
+  padding: 4px 8px;
+  font-size: 0.72rem;
+}
+
+.super-admin-bottom-grid .dashboard-dropdown__icon {
+  width: 36px;
+  min-width: 36px;
+  height: 36px;
+}
+
+.super-admin-bottom-grid .list {
+  gap: 8px;
 }
 
 @media (max-width: 1180px) {
